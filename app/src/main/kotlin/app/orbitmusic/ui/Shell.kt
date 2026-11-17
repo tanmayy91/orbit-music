@@ -327,7 +327,7 @@ fun Shell() {
             // hidden unless told not to, so they aren't placed.
             val veiled = { Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && player.value > 0.13f }
             val frostUnderVeil by remember { derivedStateOf { veiled() } }
-            val dockUnderPlayer by remember { derivedStateOf { player.value > 0.24f } }
+            val dockHidden by remember { derivedStateOf { player.value > 0.24f || nav.current is Route.Ary } }
             val menuSheet: @Composable () -> Unit = {
                 DragSheet(menu, onClosed = { menuFor = null; menuInPlayer = false }) {
                     menuFor?.let { track -> TrackMenu(track, close = { menu.hide() }) }
@@ -356,7 +356,7 @@ fun Shell() {
                     Box(Modifier.fillMaxSize().placedWhile { !hidden }) {
                         Box(Modifier.fillMaxSize().placedWhile { !frostUnderVeil }) {
                             EdgeBlur(Edge.Top, top + 64.dp)
-                            DockFrost(dock, playback.hasMedia)
+                            if (nav.current !is Route.Ary) DockFrost(dock, playback.hasMedia)
                             // Above the frost, so it stays sharp; it rides with Home's page all the same.
                             DayCorner(nav, arrival, top, screenWidth)
                         }
@@ -370,7 +370,7 @@ fun Shell() {
                         Corner(nav, player)
                         SettingsKey(nav, screenWidth)
                         PageCornerMenu(actions.corner, shown = nav.depth > 1 && !player.visible)
-                        Box(Modifier.fillMaxSize().placedWhile { !dockUnderPlayer }) {
+                        Box(Modifier.fillMaxSize().placedWhile { !dockHidden }) {
                             Dock(nav, playback, player, dock, showLabels = navShowLabels)
                         }
                     }

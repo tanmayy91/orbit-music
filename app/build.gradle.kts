@@ -5,6 +5,8 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.google.services)
 }
 
 // Release signing: the key and its passwords live outside git, in keystore.properties (ignored) or in
@@ -90,7 +92,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
 }
 
 tasks.withType<KotlinCompile>().configureEach {
@@ -128,6 +133,11 @@ dependencies {
     // The releases GitHub lists, for Orbit Music's own updates.
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.profileinstaller)
+
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.ai)
+    implementation(libs.firebase.appcheck.recaptcha)
+    implementation(libs.firebase.appcheck.debug)
 
     // Verse's line model and the offline albums (./gradlew :app:testDebugUnitTest).
     testImplementation(libs.junit)

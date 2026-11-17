@@ -25,6 +25,7 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
         super.onCreate(savedInstanceState)
+        configureAppCheck(this, intent)
         val container = (application as OrbitMusicApp).container
         container.playback.connect()
         // The boot film plays on a cold start only: not when the activity is recreated.

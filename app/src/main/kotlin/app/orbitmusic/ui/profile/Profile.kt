@@ -183,7 +183,7 @@ fun ProfileScreen() {
             item(key = "head") { Head(name, assistant, current, account?.photo ?: Artwork.None, onName = { naming = true }, onExport = {
                 val s = current
                 if (s != null && !s.isEmpty) exportCard(actions, faces, name, s, genres.firstOrNull()?.first)
-            }, onSettings = { actions.nav.open(Route.Settings) }) }
+            }, onAssistant = { actions.go(Route.Ary()) }, onSettings = { actions.nav.open(Route.Settings) }) }
             when {
                 current == null -> Unit
                 current.isEmpty -> item { Notice("It starts with one song", "Everything you play shows up here: who you come back to, when you listen, and what it adds up to. It stays on this phone.") }
@@ -287,12 +287,21 @@ private fun RoomSetup(chosenAssistant: String?, onRenameAssistant: () -> Unit) {
                 Txt("Assistant", Type.TitleSmall)
                 Spacer(Modifier.height(4.dp))
                 Txt(
-                    chosenAssistant ?: "${Settings.DEFAULT_ASSISTANT_NAME} (default) · Coming soon",
+                    "${chosenAssistant ?: Settings.DEFAULT_ASSISTANT_NAME}  ·  Add or remove playlist songs",
                     Type.Meta,
                     color = Ink.Grey,
                 )
             }
-            Spacer(Modifier.width(16.dp))
+            Spacer(Modifier.width(12.dp))
+            GlassPill(
+                "Ask",
+                icon = Glyph.Sparkle,
+                small = true,
+                lit = true,
+                modifier = Modifier.testTag("profile_room_open_assistant_button"),
+                onClick = { actions.go(Route.Ary()) },
+            )
+            Spacer(Modifier.width(8.dp))
             GlassPill(
                 "Rename",
                 small = true,
@@ -440,7 +449,16 @@ private fun hoursLabel(minutes: Long): String = when {
 }
 
 @Composable
-private fun Head(name: String, assistant: String, stats: ProfileStats?, photo: Artwork, onName: () -> Unit, onExport: () -> Unit, onSettings: () -> Unit) {
+private fun Head(
+    name: String,
+    assistant: String,
+    stats: ProfileStats?,
+    photo: Artwork,
+    onName: () -> Unit,
+    onExport: () -> Unit,
+    onAssistant: () -> Unit,
+    onSettings: () -> Unit,
+) {
     Column(Modifier.separate().fillMaxWidth().windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility).padding(top = 44.dp, start = 20.dp, end = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         if (!photo.isEmpty) {
             TreatedArtwork(photo, ArtTreatment.Print, Modifier.size(76.dp).clip(CircleShape), sizeHintPx = 240)
@@ -461,13 +479,16 @@ private fun Head(name: String, assistant: String, stats: ProfileStats?, photo: A
                 Txt("Listening here since $it", Type.Aside, color = Ink.Grey, align = TextAlign.Center)
             }
             Spacer(Modifier.height(22.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 GlassButton("Export card", onClick = onExport)
-                GlassPill("Settings", icon = Glyph.Gear, modifier = Modifier.testTag("profile_settings_top_button"), onClick = onSettings)
+                GlassPill("Ask $assistant", icon = Glyph.Sparkle, lit = true, modifier = Modifier.testTag("profile_open_assistant_button"), onClick = onAssistant)
             }
         } else {
             Spacer(Modifier.height(20.dp))
-            GlassPill("Settings", icon = Glyph.Gear, modifier = Modifier.testTag("profile_settings_top_button"), onClick = onSettings)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                GlassPill("Ask $assistant", icon = Glyph.Sparkle, lit = true, modifier = Modifier.testTag("profile_open_assistant_button"), onClick = onAssistant)
+                GlassPill("Settings", icon = Glyph.Gear, modifier = Modifier.testTag("profile_settings_top_button"), onClick = onSettings)
+            }
         }
     }
 }
@@ -579,7 +600,7 @@ private fun ProfileIntroDialog(
             Box(Modifier.fillMaxWidth(0.76f).height(0.5.dp).background(Ink.Hairline))
             Spacer(Modifier.height(8.dp))
             Txt(
-                "Leave blank to keep ${Settings.DEFAULT_ASSISTANT_NAME}. Features arrive later.",
+                "Leave blank to keep ${Settings.DEFAULT_ASSISTANT_NAME}. Ask them anytime to curate playlists.",
                 Type.Meta.copy(fontSize = 11.5.sp),
                 color = Ink.Grey,
                 align = TextAlign.Center,

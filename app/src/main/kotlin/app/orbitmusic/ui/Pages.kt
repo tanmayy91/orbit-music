@@ -321,6 +321,7 @@ private fun Screen(route: Route) {
         Route.SettingsAbout -> app.orbitmusic.ui.settings.AboutSettingsScreen()
         Route.Discord -> app.orbitmusic.ui.settings.DiscordSettingsScreen()
         Route.Equaliser -> app.orbitmusic.ui.settings.EqualiserScreen()
+        is Route.Ary -> app.orbitmusic.ui.assistant.AryScreen(route.playlistId)
         is Route.OnThisPhone -> app.orbitmusic.ui.library.OnThisPhoneScreen(route.path)
         Route.Kept -> app.orbitmusic.ui.library.KeptScreen()
         is Route.OfflineAlbum -> app.orbitmusic.ui.library.OfflineAlbumScreen(route.album)

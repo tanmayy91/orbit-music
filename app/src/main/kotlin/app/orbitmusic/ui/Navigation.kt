@@ -41,6 +41,7 @@ sealed interface Route {
     data object SettingsAbout : Route { override val key = "settings-about" }
     data object Discord : Route { override val key = "discord" }
     data object Equaliser : Route { override val key = "equaliser" }
+    data class Ary(val playlistId: Long? = null) : Route { override val key = "ary:${playlistId ?: "all"}" }
 
     /** Offline music as a playlist; with a [path], one of the phone's folders inside it. */
     data class OnThisPhone(val path: String = "") : Route { override val key = "phone:$path" }

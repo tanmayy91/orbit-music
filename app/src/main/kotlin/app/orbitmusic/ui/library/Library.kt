@@ -96,6 +96,8 @@ import app.orbitmusic.ui.detail.sleeveTracks
 import app.orbitmusic.ui.FolderLink
 import app.orbitmusic.player.Downloads
 import app.orbitmusic.ui.FolderPreview
+import androidx.compose.ui.platform.testTag
+import app.orbitmusic.core.data.Settings
 import app.orbitmusic.ui.pageLanded
 
 private enum class Shelf(val label: String) { Playlists("Playlists"), Kept("Kept"), Phone("On this phone"), Songs("Songs"), Albums("Albums"), Artists("Artists"), History("History") }
@@ -121,6 +123,8 @@ fun LibraryScreen() {
     val fromCatalogue = remember(saved, snapshots) {
         saved + snapshots.values.filter { it.keptFrom && saved.none { s -> s.id == it.playlist.id } }.map { it.playlist }
     }
+    val chosenAssistant by container.settings.assistantName.collectAsStateWithLifecycle()
+    val assistantName = chosenAssistant?.takeIf { it.isNotBlank() } ?: Settings.DEFAULT_ASSISTANT_NAME
     // The phone's own music: read only with the listener's permission.
     val music = rememberPhoneMusic()
 
@@ -141,6 +145,21 @@ fun LibraryScreen() {
             }
             when (shelf) {
                 Shelf.Playlists -> {
+                    item(key = "ary_playlists_bar") {
+                        Box(
+                            Modifier.fillMaxWidth().padding(horizontal = Space.edge, vertical = 4.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            GlassPill(
+                                text = "Ask $assistantName to manage playlists",
+                                icon = Glyph.Sparkle,
+                                lit = true,
+                                small = true,
+                                modifier = Modifier.testTag("library_open_assistant_button"),
+                                onClick = { actions.go(Route.Ary()) },
+                            )
+                        }
+                    }
                     val cards = buildList<@Composable () -> Unit> {
                         add {
                             FolderCard(
@@ -323,6 +342,8 @@ fun LocalPlaylistScreen(id: Long) {
     var searching by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     val p = playlist
+    val chosenAssistant by container.settings.assistantName.collectAsStateWithLifecycle()
+    val assistantName = chosenAssistant?.takeIf { it.isNotBlank() } ?: Settings.DEFAULT_ASSISTANT_NAME
     val orders by container.settings.songOrders.collectAsStateWithLifecycle()
     val order = SongOrder.of(orders["local:$id"])
     val own = entries.map { it.track }
@@ -378,8 +399,26 @@ fun LocalPlaylistScreen(id: Long) {
                             ) {
                                 SleeveActions(tracks, saved = null, onSave = null, keepKey = false) {
                                     GlassCircle(Glyph.Search, "Search this playlist", { searching = true }, size = 50.dp)
+                                    GlassCircle(
+                                        Glyph.Sparkle,
+                                        "Ask $assistantName",
+                                        { actions.go(Route.Ary(playlistId = id)) },
+                                        size = 50.dp,
+                                        lit = true,
+                                        modifier = Modifier.testTag("playlist_open_assistant_button"),
+                                    )
                                 }
                             }
+                        } else {
+                            Spacer(Modifier.height(12.dp))
+                            GlassPill(
+                                text = "Ask $assistantName to add songs",
+                                icon = Glyph.Sparkle,
+                                lit = true,
+                                small = true,
+                                modifier = Modifier.testTag("playlist_open_assistant_button"),
+                                onClick = { actions.go(Route.Ary(playlistId = id)) },
+                            )
                         }
                         if (editing) {
                             Spacer(Modifier.height(16.dp))
@@ -427,6 +466,7 @@ fun LocalPlaylistScreen(id: Long) {
         }
         if (p != null) PageMenu(
             entries = listOfNotNull(
+                PageAction(Glyph.Sparkle, "Ask $assistantName") { actions.go(Route.Ary(playlistId = id)) },
                 PageAction(Glyph.Edit, "Rename") { renaming = true },
                 if (tracks.isNotEmpty()) PageAction(if (editing) Glyph.Check else Glyph.Queue, if (editing) "Done editing" else "Edit songs") { editing = !editing; searching = false; query = "" } else null,
                 PageAction(Glyph.Trash, "Delete") { deleting = true },
