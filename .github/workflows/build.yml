@@ -1,0 +1,70 @@
+name: Build App
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Test & Build Debug APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Prepare debug keystore
+        run: |
+          if [ -f debug.keystore.base64 ]; then
+            tr -d '\r\n' < debug.keystore.base64 | base64 -d > debug.keystore
+          else
+            keytool -genkeypair -v -keystore debug.keystore -storepass android \
+              -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 \
+              -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - name: Grant execute permission for Gradle wrapper
+        run: chmod +x gradlew
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run unit tests
+        run: ./gradlew :core:model:test :ytmusic:test :app:testDebugUnitTest --no-daemon
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug --no-daemon
+
+      - name: Package debug APK & checksum
+        run: |
+          mkdir -p dist
+          APK_PATH="$(find app/build/outputs/apk/debug -maxdepth 2 -name '*.apk' | head -n 1)"
+          if [ -z "$APK_PATH" ]; then
+            echo "Debug APK not found" >&2
+            exit 1
+          fi
+          cp "$APK_PATH" dist/AETHER-debug.apk
+          (cd dist && sha256sum AETHER-debug.apk > AETHER-debug.apk.sha256)
+          ls -lh dist/
+
+      - name: Upload debug APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHER-debug-apk
+          path: |
+            dist/AETHER-debug.apk
+            dist/AETHER-debug.apk.sha256
+          retention-days: 14

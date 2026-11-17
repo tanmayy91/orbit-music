@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <!-- AETHER's own updates: a release downloaded from GitHub, checked, then handed to Android's
+         installer, which asks the listener to confirm. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Nearby devices, asked for only when an addon wants a lossless output: Android names the codec
+         Bluetooth headphones play over (LDAC, LHDC…) only to an app holding it. Nothing else is read. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <!-- Android 14 and later name the codec only to an app associated with the headphones as a
+         companion device: the system's own one-time dialog. Not required to install. -->
+    <uses-feature android:name="android.software.companion_device_setup" android:required="false" />
+
+    <application
+        android:name=".AetherApp"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="AETHER"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Aether">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".ui.account.SignInActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:windowSoftInputMode="adjustResize" />
+        <!-- The picture of a Profile card, handed to whichever app it's shared with. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/share_paths" />
+        </provider>
+        <!-- What Android's installer says about an update; only the installer's own intent reaches it. -->
+        <receiver
+            android:name=".update.UpdateInstallReceiver"
+            android:exported="false" />
+    </application>
+</manifest>
