@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "app.aether.player"
+    namespace = "app.orbitmusic.player"
     compileSdk = 37
     defaultConfig { minSdk = 29 }
     testOptions { unitTests.isReturnDefaultValues = true }

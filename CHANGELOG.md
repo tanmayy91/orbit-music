@@ -1,11 +1,16 @@
 # Changelog
 
-All notable changes to AETHER will be documented in this file.
+All notable changes to Orbit Music will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-11-17
+
+### Changed
+- Rebranded the application, packages (`app.orbitmusic`), storage, and workflows from AETHER to **Orbit Music** at version `1.0.0`.
 
 ## [2.3.0] - 2026-11-11
 
@@ -95,9 +100,9 @@ The first release.
 - **Cards:** a metal charge card of your profile or any song, black or silver, at 1080 by 1920.
 - **Privacy:** no ads, no analytics, no tracking, no account and no server of ours.
 
-[Unreleased]: https://github.com/GHOSTxASR/AETHER/compare/v2.3.0...HEAD
-[2.3.0]: https://github.com/GHOSTxASR/AETHER/compare/v2.2.0...v2.3.0
-[2.2.0]: https://github.com/GHOSTxASR/AETHER/compare/v2.1.0...v2.2.0
-[2.1.0]: https://github.com/GHOSTxASR/AETHER/compare/v2.0.0...v2.1.0
-[2.0.0]: https://github.com/GHOSTxASR/AETHER/compare/v1.0.0...v2.0.0
-[1.0.0]: https://github.com/GHOSTxASR/AETHER/releases/tag/v1.0.0
+[Unreleased]: https://github.com/tanmayy91/orbit-music/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/tanmayy91/orbit-music/releases/tag/v1.0.0
+[2.3.0]: https://github.com/tanmayy91/orbit-music/compare/v2.2.0...v2.3.0
+[2.2.0]: https://github.com/tanmayy91/orbit-music/compare/v2.1.0...v2.2.0
+[2.1.0]: https://github.com/tanmayy91/orbit-music/compare/v2.0.0...v2.1.0
+[2.0.0]: https://github.com/tanmayy91/orbit-music/compare/v1.0.0...v2.0.0

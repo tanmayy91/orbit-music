@@ -30,7 +30,7 @@ tasks.register<JavaExec>("streamCheck") {
     group = "verification"
     description = "Resolves YouTube Music streams live and checks both ends of each serve audio."
     classpath = sourceSets["test"].runtimeClasspath
-    mainClass.set("app.aether.sources.youtube.StreamCheckKt")
+    mainClass.set("app.orbitmusic.sources.youtube.StreamCheckKt")
     // -Pids=a,b  -Pregion=IN  -Pcount=12  -Pdiagnose=true
     args = listOf("ids", "region", "count", "diagnose").mapNotNull { name -> project.findProperty(name)?.let { "$name=$it" } }
 }
@@ -39,7 +39,7 @@ tasks.register<JavaExec>("streamCheck") {
 tasks.register<JavaExec>("browseCheck") {
     group = "verification"
     classpath = sourceSets["test"].runtimeClasspath
-    mainClass.set("app.aether.sources.youtube.BrowseCheckKt")
+    mainClass.set("app.orbitmusic.sources.youtube.BrowseCheckKt")
     args = listOf("region", "filter", "artist", "album", "radio").mapNotNull { name -> project.findProperty(name)?.let { "$name=$it" } }
 }
 
@@ -47,20 +47,20 @@ tasks.register<JavaExec>("browseCheck") {
 tasks.register<JavaExec>("localeCheck") {
     group = "verification"
     classpath = sourceSets["test"].runtimeClasspath
-    mainClass.set("app.aether.sources.youtube.LocaleCheckKt")
+    mainClass.set("app.orbitmusic.sources.youtube.LocaleCheckKt")
 }
 
 // What the service answers a session it won't accept (no real session is used).
 tasks.register<JavaExec>("sessionCheck") {
     group = "verification"
     classpath = sourceSets["test"].runtimeClasspath
-    mainClass.set("app.aether.sources.youtube.SessionCheckKt")
+    mainClass.set("app.orbitmusic.sources.youtube.SessionCheckKt")
 }
 
 // Saves the opening of a song's AAC copy, to read how its file is laid out (needs the network).
 tasks.register<JavaExec>("aacLayoutCheck") {
     group = "verification"
     classpath = sourceSets["test"].runtimeClasspath
-    mainClass.set("app.aether.sources.youtube.AacLayoutCheckKt")
+    mainClass.set("app.orbitmusic.sources.youtube.AacLayoutCheckKt")
     args = listOf("ids", "out", "bytes").mapNotNull { name -> project.findProperty(name)?.let { "$name=$it" } }
 }

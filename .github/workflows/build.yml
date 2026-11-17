@@ -56,15 +56,15 @@ jobs:
             echo "Debug APK not found" >&2
             exit 1
           fi
-          cp "$APK_PATH" dist/AETHER-debug.apk
-          (cd dist && sha256sum AETHER-debug.apk > AETHER-debug.apk.sha256)
+          cp "$APK_PATH" dist/Orbit-Music-debug.apk
+          (cd dist && sha256sum Orbit-Music-debug.apk > Orbit-Music-debug.apk.sha256)
           ls -lh dist/
 
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AETHER-debug-apk
+          name: Orbit-Music-debug-apk
           path: |
-            dist/AETHER-debug.apk
-            dist/AETHER-debug.apk.sha256
+            dist/Orbit-Music-debug.apk
+            dist/Orbit-Music-debug.apk.sha256
           retention-days: 14

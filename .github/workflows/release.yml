@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v2.3.0). Leave empty to use versionName from app/build.gradle.kts."
+        description: "Release tag (e.g. v1.0.0). Leave empty to use versionName from app/build.gradle.kts."
         required: false
         default: ""
       prerelease:
@@ -53,10 +53,10 @@ jobs:
 
       - name: Prepare signing keystores
         env:
-          AETHER_KEYSTORE_BASE64: ${{ secrets.AETHER_KEYSTORE_BASE64 }}
-          SECRET_KEYSTORE_PASSWORD: ${{ secrets.AETHER_KEYSTORE_PASSWORD }}
-          SECRET_KEY_ALIAS: ${{ secrets.AETHER_KEY_ALIAS }}
-          SECRET_KEY_PASSWORD: ${{ secrets.AETHER_KEY_PASSWORD }}
+          ORBIT_MUSIC_KEYSTORE_BASE64: ${{ secrets.ORBIT_MUSIC_KEYSTORE_BASE64 }}
+          SECRET_KEYSTORE_PASSWORD: ${{ secrets.ORBIT_MUSIC_KEYSTORE_PASSWORD }}
+          SECRET_KEY_ALIAS: ${{ secrets.ORBIT_MUSIC_KEY_ALIAS }}
+          SECRET_KEY_PASSWORD: ${{ secrets.ORBIT_MUSIC_KEY_PASSWORD }}
         run: |
           if [ -f debug.keystore.base64 ]; then
             tr -d '\r\n' < debug.keystore.base64 | base64 -d > debug.keystore
@@ -66,18 +66,18 @@ jobs:
               -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-          if [ -n "$AETHER_KEYSTORE_BASE64" ]; then
-            echo "$AETHER_KEYSTORE_BASE64" | tr -d '\r\n' | base64 -d > release.keystore
-            echo "AETHER_KEYSTORE_FILE=${{ github.workspace }}/release.keystore" >> "$GITHUB_ENV"
-            echo "AETHER_KEYSTORE_PASSWORD=${SECRET_KEYSTORE_PASSWORD}" >> "$GITHUB_ENV"
-            echo "AETHER_KEY_ALIAS=${SECRET_KEY_ALIAS:-aether}" >> "$GITHUB_ENV"
-            echo "AETHER_KEY_PASSWORD=${SECRET_KEY_PASSWORD:-$SECRET_KEYSTORE_PASSWORD}" >> "$GITHUB_ENV"
+          if [ -n "$ORBIT_MUSIC_KEYSTORE_BASE64" ]; then
+            echo "$ORBIT_MUSIC_KEYSTORE_BASE64" | tr -d '\r\n' | base64 -d > release.keystore
+            echo "ORBIT_MUSIC_KEYSTORE_FILE=${{ github.workspace }}/release.keystore" >> "$GITHUB_ENV"
+            echo "ORBIT_MUSIC_KEYSTORE_PASSWORD=${SECRET_KEYSTORE_PASSWORD}" >> "$GITHUB_ENV"
+            echo "ORBIT_MUSIC_KEY_ALIAS=${SECRET_KEY_ALIAS:-orbitmusic}" >> "$GITHUB_ENV"
+            echo "ORBIT_MUSIC_KEY_PASSWORD=${SECRET_KEY_PASSWORD:-$SECRET_KEYSTORE_PASSWORD}" >> "$GITHUB_ENV"
             echo "signing_mode=release-secret" >> "$GITHUB_ENV"
           else
-            echo "AETHER_KEYSTORE_FILE=${{ github.workspace }}/debug.keystore" >> "$GITHUB_ENV"
-            echo "AETHER_KEYSTORE_PASSWORD=android" >> "$GITHUB_ENV"
-            echo "AETHER_KEY_ALIAS=androiddebugkey" >> "$GITHUB_ENV"
-            echo "AETHER_KEY_PASSWORD=android" >> "$GITHUB_ENV"
+            echo "ORBIT_MUSIC_KEYSTORE_FILE=${{ github.workspace }}/debug.keystore" >> "$GITHUB_ENV"
+            echo "ORBIT_MUSIC_KEYSTORE_PASSWORD=android" >> "$GITHUB_ENV"
+            echo "ORBIT_MUSIC_KEY_ALIAS=androiddebugkey" >> "$GITHUB_ENV"
+            echo "ORBIT_MUSIC_KEY_PASSWORD=android" >> "$GITHUB_ENV"
             echo "signing_mode=debug-fallback" >> "$GITHUB_ENV"
           fi
 
@@ -103,7 +103,7 @@ jobs:
             echo "Release APK not found" >&2
             exit 1
           fi
-          ASSET_NAME="AETHER-${TAG}.apk"
+          ASSET_NAME="Orbit-Music-${TAG}.apk"
           cp "$APK_PATH" "dist/${ASSET_NAME}"
           (cd dist && sha256sum "${ASSET_NAME}" > "${ASSET_NAME}.sha256")
           SHA256="$(cut -d ' ' -f 1 "dist/${ASSET_NAME}.sha256")"
@@ -115,7 +115,7 @@ jobs:
           if [ -f "$NOTES_FILE" ]; then
             cp "$NOTES_FILE" "$BODY_FILE"
           else
-            printf '**AETHER %s** built automatically by GitHub Actions.\n' "${TAG#v}" > "$BODY_FILE"
+            printf '**Orbit Music %s** built automatically by GitHub Actions.\n' "${TAG#v}" > "$BODY_FILE"
           fi
 
           {
@@ -140,7 +140,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
-          name: AETHER ${{ steps.meta.outputs.tag }}
+          name: Orbit Music ${{ steps.meta.outputs.tag }}
           body_path: dist/release-notes.md
           prerelease: ${{ inputs.prerelease || false }}
           generate_release_notes: true

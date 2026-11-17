@@ -32,6 +32,6 @@ tasks.register<JavaExec>("liveCheck") {
     group = "verification"
     description = "Asks every lyrics library live and says what each answered."
     classpath = sourceSets["test"].runtimeClasspath
-    mainClass.set("app.aether.core.lyrics.LiveCheckKt")
+    mainClass.set("app.orbitmusic.core.lyrics.LiveCheckKt")
     providers.gradleProperty("debug").orNull?.let { systemProperty("debug", it) }
 }

@@ -1,4 +1,4 @@
-<h1 align="center">AETHER</h1>
+<h1 align="center">Orbit Music</h1>
 
 <p align="center">
 <b>A premium music player for Android.</b><br>
@@ -6,8 +6,8 @@ Built around the sound. Unlike anything you've used.
 </p>
 
 <p align="center">
-  <a href="https://github.com/GHOSTxASR/AETHER/releases/latest/download/AETHER.v2.3.apk"><img alt="Download the APK" src="https://img.shields.io/badge/Download-APK-ffffff?style=for-the-badge&labelColor=000000" /></a>
-  <a href="https://github.com/GHOSTxASR/AETHER/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/GHOSTxASR/AETHER?style=for-the-badge&labelColor=000000&color=ffffff" /></a>
+  <a href="https://github.com/tanmayy91/orbit-music/releases/latest/download/orbit-music-v1.0.0.apk"><img alt="Download the APK" src="https://img.shields.io/badge/Download-APK-ffffff?style=for-the-badge&labelColor=000000" /></a>
+  <a href="https://github.com/tanmayy91/orbit-music/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/tanmayy91/orbit-music?style=for-the-badge&labelColor=000000&color=ffffff" /></a>
   <a href="LICENSE"><img alt="License: GPL-3.0" src="https://img.shields.io/badge/License-GPL--3.0-ffffff?style=for-the-badge&labelColor=000000" /></a>
   <img alt="Android 10 or later" src="https://img.shields.io/badge/Android-10%2B-ffffff?style=for-the-badge&labelColor=000000" />
 </p>
@@ -26,17 +26,17 @@ Built around the sound. Unlike anything you've used.
   <img src="docs/images/card-song.jpg" width="24%" alt="A song card in black metal">
 </p>
 
-AETHER is made the way a fine watch is made: every part considered, nothing there for show. Pure black. One glass. Three typefaces. The only colour on the screen comes from the music you're playing.
+Orbit Music is made the way a fine watch is made: every part considered, nothing there for show. Pure black. One glass. Three typefaces. The only colour on the screen comes from the music you're playing.
 
 It plays all of YouTube Music and your own files through an audio path that reports exactly what it measured, in an interface no other music app looks or moves like.
 
-<p align="center"><a href="https://aether-music-player.vercel.app/">Website</a>&nbsp;&nbsp;|&nbsp;&nbsp;<a href="https://github.com/GHOSTxASR/AETHER/releases/latest">Releases</a></p>
+<p align="center"><a href="https://orbit-music-player.vercel.app/">Website</a>&nbsp;&nbsp;|&nbsp;&nbsp;<a href="https://github.com/tanmayy91/orbit-music/releases/latest">Releases</a></p>
 
 ## Download
 
-1. Download **[AETHER v2.3.apk](https://github.com/GHOSTxASR/AETHER/releases/latest/download/AETHER.v2.3.apk)** from the latest release.
+1. Download **[orbit-music-v1.0.0.apk](https://github.com/tanmayy91/orbit-music/releases/latest/download/orbit-music-v1.0.0.apk)** from the latest release.
 2. Open it on your phone. Android asks once to allow installs from your browser or file manager.
-3. Open AETHER and press play.
+3. Open Orbit Music and press play.
 
 Needs Android 10 or later. Every release is signed with the same key, so new versions install over old ones and keep your library.
 
@@ -56,7 +56,7 @@ Needs Android 10 or later. Every release is signed with the same key, so new ver
 
 **Your whole library.** The complete YouTube Music catalogue, as a guest or signed in on Google's own page. Your own FLAC, ALAC and WAV files, as albums and folder by folder. Songs and whole playlists kept for offline, as files in your Music folder, picking up new additions on Wi-Fi. Your own sources, added by address over an open protocol.
 
-**The best copy there is.** For a song from YouTube Music, your own sources are asked for the very same recording first, lossless where they have it. When one turns up while the song plays, AETHER goes over to it mid-song, lined up by its sound and handed over in a crossfade you shouldn't hear.
+**The best copy there is.** For a song from YouTube Music, your own sources are asked for the very same recording first, lossless where they have it. When one turns up while the song plays, Orbit Music goes over to it mid-song, lined up by its sound and handed over in a crossfade you shouldn't hear.
 
 **Songs that meet.** Crossfade of 2 to 12 seconds, never between an album's songs that run into each other.
 
@@ -80,14 +80,14 @@ Needs Android 10 or later. Every release is signed with the same key, so new ver
 
 ## Privacy
 
-Your YouTube sign-in is sealed with the Android Keystore, and a card leaves the phone only when you send it. Apart from fetching music, AETHER makes four kinds of request. Each can be turned off in Settings, and none says anything about you.
+Your YouTube sign-in is sealed with the Android Keystore, and a card leaves the phone only when you send it. Apart from fetching music, Orbit Music makes four kinds of request. Each can be turned off in Settings, and none says anything about you.
 
 | For | Asks | Sends |
 |---|---|---|
 | Timed lyrics | lrc.red, BiniLyrics, BetterLyrics, LyricsPlus, Unison, LRCLIB and KuGou, each one switchable | A song's title, artist, album and length |
 | Artist and album art | Apple's public pages | An artist's name and an album's title |
 | Song video | Apple's public pages | A song's title and artist |
-| Updates | GitHub's list of AETHER's releases | Nothing: it reads the newest release's number |
+| Updates | GitHub's list of Orbit Music's releases | Nothing: it reads the newest release's number |
 
 ## Principles
 
@@ -121,10 +121,10 @@ What changed and when is in [`CHANGELOG.md`](CHANGELOG.md). Design and engineeri
 
 ## Credits
 
-AETHER stands on PODIUM, LastWave-native and BitChord (GPL-3.0), Kyant's Backdrop, Media3, Coil, [AutoEq](https://github.com/jaakkopasanen/AutoEq) and the people who measured the headphones, and Phosphor Icons. Everything is listed with its licence in [`third_party/NOTICES.md`](third_party/NOTICES.md), and the statue photographers in [`third_party/STATUE_PHOTOS.md`](third_party/STATUE_PHOTOS.md).
+Orbit Music stands on PODIUM, LastWave-native and BitChord (GPL-3.0), Kyant's Backdrop, Media3, Coil, [AutoEq](https://github.com/jaakkopasanen/AutoEq) and the people who measured the headphones, and Phosphor Icons. Everything is listed with its licence in [`third_party/NOTICES.md`](third_party/NOTICES.md), and the statue photographers in [`third_party/STATUE_PHOTOS.md`](third_party/STATUE_PHOTOS.md).
 
 ## Licence
 
 [GPL-3.0](LICENSE). Third-party parts keep their own licences and notices.
 
-AETHER is an independent project. It isn't affiliated with or endorsed by YouTube, Google, Apple or any headphone maker named here, and all music, artwork and trademarks belong to their owners.
+Orbit Music is an independent project. It isn't affiliated with or endorsed by YouTube, Google, Apple or any headphone maker named here, and all music, artwork and trademarks belong to their owners.

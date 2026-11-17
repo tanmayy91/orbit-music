@@ -2,7 +2,7 @@
 <resources>
     <!-- Pure black from the first frame: the system splash is black with nothing on it, so the
          liquid-lens boot is the first thing a listener sees. -->
-    <style name="Theme.Aether" parent="android:Theme.Material.NoActionBar">
+    <style name="Theme.OrbitMusic" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:colorBackground">@android:color/black</item>
         <item name="android:statusBarColor">@android:color/transparent</item>

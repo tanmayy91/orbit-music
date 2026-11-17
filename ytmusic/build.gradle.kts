@@ -33,7 +33,7 @@ tasks.register<JavaExec>("liveCheck") {
     group = "verification"
     description = "Fetches every guest YouTube Music surface live and checks that it parses."
     classpath = sourceSets["test"].runtimeClasspath
-    mainClass.set("app.aether.ytmusic.LiveCheckKt")
+    mainClass.set("app.orbitmusic.ytmusic.LiveCheckKt")
     args = listOfNotNull(providers.gradleProperty("country").orNull)
 }
 
@@ -41,5 +41,5 @@ tasks.register<JavaExec>("liveCheck") {
 tasks.register<JavaExec>("pageCountryCheck") {
     group = "verification"
     classpath = sourceSets["test"].runtimeClasspath
-    mainClass.set("app.aether.ytmusic.PageCountryCheckKt")
+    mainClass.set("app.orbitmusic.ytmusic.PageCountryCheckKt")
 }

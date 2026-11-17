@@ -1,6 +1,6 @@
-# AETHER: project rules for coding agents
+# Orbit Music: project rules for coding agents
 
-AETHER is a music app for Android: YouTube Music's catalogue, music quality first, in a black,
+Orbit Music is a music app for Android: YouTube Music's catalogue, music quality first, in a black,
 editorial, ASCII-and-glass visual world. `docs/product.md` is the design brief and how it's built;
 `docs/architecture.md` says where each engine part comes from (PODIUM at D:\PODIUM, LastWave-native)
 and why; `docs/ytmusic-verification.md` is what YouTube Music answers, verified live. Update them
@@ -50,5 +50,5 @@ when behaviour changes.
 - `./gradlew :ytmusic:test` (fixtures), `./gradlew :core:model:test :player:testDebugUnitTest` (the equaliser's sums and
   audio), `./gradlew :ytmusic:liveCheck` (live service),
   `./gradlew :app:installDebug` (the phone).
-- Debug builds only: `adb shell am start -n app.aether.debug/app.aether.MainActivity --es aether.preview welcome`
+- Debug builds only: `adb shell am start -n app.orbitmusic.debug/app.orbitmusic.MainActivity --es orbitmusic.preview welcome`
   shows the welcome again without touching the listener's settings.

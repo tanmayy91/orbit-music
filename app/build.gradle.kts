@@ -8,27 +8,27 @@ plugins {
 }
 
 // Release signing: the key and its passwords live outside git, in keystore.properties (ignored) or in
-// AETHER_KEYSTORE_* environment variables. Without either, the release APK is built unsigned.
+// ORBIT_MUSIC_KEYSTORE_* environment variables. Without either, the release APK is built unsigned.
 val signing = Properties().apply {
     rootProject.file("keystore.properties").takeIf { it.isFile }?.inputStream()?.use { load(it) }
 }
 fun secret(key: String, env: String): String? = signing.getProperty(key) ?: System.getenv(env)
-val releaseStore = secret("storeFile", "AETHER_KEYSTORE_FILE")
+val releaseStore = secret("storeFile", "ORBIT_MUSIC_KEYSTORE_FILE")
 
-// A release build installed beside the phone's own: -Paether.applicationIdSuffix=.rc. Testing one
+// A release build installed beside the phone's own: -Porbitmusic.applicationIdSuffix=.rc. Testing one
 // then needs no uninstall, which would wipe the listener's data.
-val sideBySide = providers.gradleProperty("aether.applicationIdSuffix").orNull
+val sideBySide = providers.gradleProperty("orbitmusic.applicationIdSuffix").orNull
 
 android {
-    namespace = "app.aether"
+    namespace = "app.orbitmusic"
     compileSdk = 37
     defaultConfig {
-        applicationId = "app.aether"
+        applicationId = "app.orbitmusic"
         minSdk = 29
         targetSdk = 36
         // major * 1,000,000 + minor * 1,000 + patch, so it only ever rises.
-        versionCode = 2_003_000
-        versionName = "2.3.0"
+        versionCode = 1_000_000
+        versionName = "1.0.0"
     }
     signingConfigs {
         create("debugConfig") {
@@ -40,9 +40,9 @@ android {
         if (releaseStore != null) {
             create("release") {
                 storeFile = file(releaseStore)
-                storePassword = secret("storePassword", "AETHER_KEYSTORE_PASSWORD")
-                keyAlias = secret("keyAlias", "AETHER_KEY_ALIAS")
-                keyPassword = secret("keyPassword", "AETHER_KEY_PASSWORD")
+                storePassword = secret("storePassword", "ORBIT_MUSIC_KEYSTORE_PASSWORD")
+                keyAlias = secret("keyAlias", "ORBIT_MUSIC_KEY_ALIAS")
+                keyPassword = secret("keyPassword", "ORBIT_MUSIC_KEY_PASSWORD")
             }
         }
     }
@@ -51,8 +51,8 @@ android {
             signingConfig = signingConfigs.getByName("debugConfig")
             applicationIdSuffix = ".debug"
             // Not debuggable by default, as in PODIUM: ART compiles it, so shaders and scrolling run
-            // as they will for listeners. For a debugger: -Paether.debuggable=true
-            isDebuggable = providers.gradleProperty("aether.debuggable").orNull == "true"
+            // as they will for listeners. For a debugger: -Porbitmusic.debuggable=true
+            isDebuggable = providers.gradleProperty("orbitmusic.debuggable").orNull == "true"
         }
         release {
             // Not shrunk: what's released is the same code that's tested on the phone every day, and
@@ -103,7 +103,7 @@ dependencies {
     implementation(libs.coil.network.okhttp)
     implementation(libs.okhttp)
     implementation(libs.kotlinx.coroutines.android)
-    // The releases GitHub lists, for AETHER's own updates.
+    // The releases GitHub lists, for Orbit Music's own updates.
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.profileinstaller)
 

@@ -26,10 +26,10 @@ dependencies {
     testImplementation(libs.kotlin.test)
 }
 
-// Adds an addon by its address and tries it as AETHER does, live: -Paddress=https://… -Pq="song artist"
+// Adds an addon by its address and tries it as Orbit Music does, live: -Paddress=https://… -Pq="song artist"
 tasks.register<JavaExec>("addonCheck") {
     group = "verification"
     classpath = sourceSets["test"].runtimeClasspath
-    mainClass.set("app.aether.sources.addon.AddonCheckKt")
+    mainClass.set("app.orbitmusic.sources.addon.AddonCheckKt")
     args = listOf("address", "q").mapNotNull { name -> project.findProperty(name)?.let { "$name=$it" } }
 }

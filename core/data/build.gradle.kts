@@ -9,7 +9,7 @@ plugins {
 }
 
 android {
-    namespace = "app.aether.core.data"
+    namespace = "app.orbitmusic.core.data"
     compileSdk = 37
     defaultConfig { minSdk = 29 }
     compileOptions {

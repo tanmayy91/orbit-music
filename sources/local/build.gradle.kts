@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "app.aether.sources.local"
+    namespace = "app.orbitmusic.sources.local"
     compileSdk = 37
     defaultConfig { minSdk = 29 }
     compileOptions {

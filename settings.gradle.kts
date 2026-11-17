@@ -14,7 +14,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "aether"
+rootProject.name = "orbit-music"
 
 // Pure Kotlin: no Android APIs (docs/product.md §3).
 include(":ytmusic")
