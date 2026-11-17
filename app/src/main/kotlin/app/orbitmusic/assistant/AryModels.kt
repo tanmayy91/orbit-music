@@ -37,12 +37,6 @@ sealed interface AryUiState {
     data class Error(val message: String) : AryUiState
 }
 
-sealed interface AryCloudSyncStatus {
-    data object LocalOnly : AryCloudSyncStatus
-    data class Synced(val handle: String) : AryCloudSyncStatus
-    data class Paused(val handle: String) : AryCloudSyncStatus
-}
-
 enum class AryChangeKind {
     CREATED_PLAYLIST,
     ADDED,

@@ -25,7 +25,6 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
         super.onCreate(savedInstanceState)
-        configureAppCheck(this, intent)
         val container = (application as OrbitMusicApp).container
         container.playback.connect()
         // The boot film plays on a cold start only: not when the activity is recreated.
@@ -69,9 +68,6 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (intent.hasExtra("FIREBASE_APPCHECK_DEBUG_TOKEN")) {
-            configureAppCheck(this, intent)
-        }
         // Debug builds: the update preview works on a running app too.
         if (packageName.endsWith(".debug") && intent.getStringExtra("orbitmusic.preview") == "update") {
             (application as OrbitMusicApp).container.updates.checkNow(pretend = "0.0.1")

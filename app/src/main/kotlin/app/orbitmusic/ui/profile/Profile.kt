@@ -322,9 +322,9 @@ private fun RoomSetup(chosenAssistant: String?, onRenameAssistant: () -> Unit) {
                 Spacer(Modifier.height(4.dp))
                 Txt(
                     when {
-                        cloudProfile != null -> "@${cloudProfile!!.handle}  ·  Collab playlists, Ary sync & shared cards"
-                        cloudUser != null -> "Signed in  ·  Finish @handle registration"
-                        else -> "Optional: collaborative playlists, Ary sync & listening cards"
+                        cloudProfile != null -> "@${cloudProfile!!.handle}  ·  Collab playlists & shared cards"
+                        cloudUser != null -> "Signed in as @${cloudUser!!.username}  ·  Finish @handle registration"
+                        else -> "Optional: collaborative playlists & listening cards (Discord)"
                     },
                     Type.Meta,
                     color = Ink.Grey,

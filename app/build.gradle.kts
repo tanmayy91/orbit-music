@@ -6,7 +6,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.google.services)
+    alias(libs.plugins.secrets)
 }
 
 // Release signing: the key and its passwords live outside git, in keystore.properties (ignored) or in
@@ -98,6 +98,11 @@ android {
     }
 }
 
+secrets {
+    propertiesFileName = ".env"
+    defaultPropertiesFileName = ".env.example"
+}
+
 tasks.withType<KotlinCompile>().configureEach {
     compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
 }
@@ -133,17 +138,6 @@ dependencies {
     // The releases GitHub lists, for Orbit Music's own updates.
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.profileinstaller)
-
-    implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.ai)
-    implementation(libs.firebase.firestore)
-    implementation(libs.firebase.auth)
-    implementation(libs.firebase.appcheck.recaptcha)
-    implementation(libs.firebase.appcheck.debug)
-    implementation(libs.androidx.credentials)
-    implementation(libs.androidx.credentials.play.services)
-    implementation(libs.googleid)
-    implementation(libs.kotlinx.coroutines.play.services)
 
     // Verse's line model and the offline albums (./gradlew :app:testDebugUnitTest).
     testImplementation(libs.junit)

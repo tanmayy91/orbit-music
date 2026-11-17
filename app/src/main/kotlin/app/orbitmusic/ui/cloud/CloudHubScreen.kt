@@ -71,7 +71,6 @@ import app.orbitmusic.core.designsystem.component.GridDots
 import app.orbitmusic.core.designsystem.component.Icon
 import app.orbitmusic.core.designsystem.component.Notice
 import app.orbitmusic.core.designsystem.component.PanelDivider
-import app.orbitmusic.core.designsystem.component.PillToggle
 import app.orbitmusic.core.designsystem.component.SectionHeading
 import app.orbitmusic.core.designsystem.component.Strapline
 import app.orbitmusic.core.designsystem.component.Txt
@@ -112,7 +111,7 @@ fun CloudHubScreen() {
         key(user.uid) {
             CloudSignedInHub(
                 uid = user.uid,
-                suggestedName = user.displayName ?: container.settings.profileName.value.orEmpty(),
+                suggestedName = user.displayName.ifBlank { container.settings.profileName.value.orEmpty() },
             )
         }
     }
@@ -124,108 +123,128 @@ private fun CloudSignInGate() {
     val actions = LocalActions.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val discordUser by container.discordStore.user.collectAsStateWithLifecycle()
     var signingIn by remember { mutableStateOf(false) }
+    var showTokenDialog by remember { mutableStateOf(false) }
     var signInError by remember { mutableStateOf<String?>(null) }
 
-    LazyColumn(
-        Modifier.fillMaxSize(),
-        state = rememberPageListState(),
-        contentPadding = PaddingValues(bottom = 0.dp),
-    ) {
-        item { BackLine() }
-        item {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = Space.edge, vertical = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Box(Modifier.widthIn(max = 600.dp), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Glyph.Profile, size = 34.dp, color = Ink.White)
-                        Spacer(Modifier.height(14.dp))
-                        Txt("Cloud & Friends", Type.Monument, align = TextAlign.Center)
-                        Spacer(Modifier.height(8.dp))
-                        Txt(
-                            "Optional cloud sync for Orbit Music. Listening offline and locally never requires an account.",
-                            Type.Aside,
-                            color = Ink.Grey,
-                            align = TextAlign.Center,
-                        )
-                        Spacer(Modifier.height(24.dp))
-                        GlassPanel {
-                            FeatureBullet(
-                                glyph = Glyph.Library,
-                                title = "Collaborative playlists",
-                                detail = "Create shared playlists, invite friends by code, and add songs together in real time.",
-                            )
-                            PanelDivider()
-                            FeatureBullet(
-                                glyph = Glyph.Sparkle,
-                                title = "Ary conversation sync",
-                                detail = "Keep your playlist assistant history across app sessions when turned on.",
-                            )
-                            PanelDivider()
-                            FeatureBullet(
-                                glyph = Glyph.Share,
-                                title = "Friends & listening cards",
-                                detail = "Find listeners by Orbit @handle or linked Discord account and share taste snapshots.",
-                            )
-                        }
-                        Spacer(Modifier.height(24.dp))
-                        GlassButton(
-                            text = if (signingIn) "Signing in…" else "Sign in with Google",
-                            lit = true,
-                            modifier = Modifier.fillMaxWidth().testTag("cloud_google_signin_button"),
-                            onClick = {
-                                if (signingIn) return@GlassButton
-                                signingIn = true
-                                signInError = null
-                                scope.launch {
-                                    val res = container.cloudAuth.signInWithGoogle(context)
-                                    signingIn = false
-                                    res.onFailure { e ->
-                                        signInError = e.localizedMessage ?: "Sign-in did not complete."
-                                    }
-                                }
-                            },
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        Txt(
-                            "Uses your Google account to secure Firebase sync. You can link Discord right after signing in.",
-                            Type.Meta,
-                            color = Ink.Grey,
-                            align = TextAlign.Center,
-                        )
-                        if (discordUser != null) {
-                            Spacer(Modifier.height(8.dp))
-                            Strapline("Discord ready: @${discordUser!!.username}")
-                        }
-                        signInError?.let { err ->
+    BackHandler(enabled = showTokenDialog) { showTokenDialog = false }
+
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            state = rememberPageListState(),
+            contentPadding = PaddingValues(bottom = 0.dp),
+        ) {
+            item { BackLine() }
+            item {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = Space.edge, vertical = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Box(Modifier.widthIn(max = 600.dp), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Glyph.Profile, size = 34.dp, color = Ink.White)
                             Spacer(Modifier.height(14.dp))
+                            Txt("Cloud & Friends", Type.Monument, align = TextAlign.Center)
+                            Spacer(Modifier.height(8.dp))
+                            Txt(
+                                "Optional cloud sync for Orbit Music. Listening offline and locally never requires an account.",
+                                Type.Aside,
+                                color = Ink.Grey,
+                                align = TextAlign.Center,
+                            )
+                            Spacer(Modifier.height(24.dp))
                             GlassPanel {
-                                Txt(
-                                    err,
-                                    Type.Meta,
-                                    color = Ink.White,
-                                    modifier = Modifier.padding(vertical = 8.dp),
+                                FeatureBullet(
+                                    glyph = Glyph.Library,
+                                    title = "Collaborative playlists",
+                                    detail = "Create shared playlists, invite friends by code, and add songs together in real time.",
+                                )
+                                PanelDivider()
+                                FeatureBullet(
+                                    glyph = Glyph.Share,
+                                    title = "Friends & listening cards",
+                                    detail = "Find listeners by Orbit @handle, Discord username, or ID and share taste snapshots.",
+                                )
+                            }
+                            Spacer(Modifier.height(24.dp))
+                            GlassButton(
+                                text = if (signingIn) "Signing in…" else "Sign in with Discord",
+                                lit = true,
+                                modifier = Modifier.fillMaxWidth().testTag("cloud_discord_signin_button"),
+                                onClick = {
+                                    if (!signingIn) {
+                                        signInError = null
+                                        context.startActivity(DiscordSignInActivity.intent(context))
+                                    }
+                                },
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            Txt(
+                                "Uses your Discord account ID and username for Supabase sync. No Google account required.",
+                                Type.Meta,
+                                color = Ink.Grey,
+                                align = TextAlign.Center,
+                            )
+                            signInError?.let { err ->
+                                Spacer(Modifier.height(14.dp))
+                                GlassPanel {
+                                    Txt(
+                                        err,
+                                        Type.Meta,
+                                        color = Ink.White,
+                                        modifier = Modifier.padding(vertical = 8.dp),
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(20.dp))
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                GlassPill(
+                                    text = "Paste Discord token",
+                                    small = true,
+                                    modifier = Modifier.testTag("cloud_gate_discord_token_button"),
+                                    onClick = { if (!signingIn) showTokenDialog = true },
+                                )
+                                GlassPill(
+                                    text = "Discord RPC",
+                                    icon = Glyph.Forward,
+                                    small = true,
+                                    modifier = Modifier.testTag("cloud_gate_discord_rpc_button"),
+                                    onClick = { actions.nav.open(Route.Discord) },
                                 )
                             }
                         }
-                        Spacer(Modifier.height(20.dp))
-                        GlassPill(
-                            text = "Discord Rich Presence",
-                            icon = Glyph.Forward,
-                            small = true,
-                            modifier = Modifier.testTag("cloud_gate_discord_rpc_button"),
-                            onClick = { actions.nav.open(Route.Discord) },
-                        )
                     }
                 }
             }
+            item { Colophon() }
         }
-        item { Colophon() }
+
+        if (showTokenDialog) {
+            NameDialog(
+                title = "Discord token",
+                initial = "",
+                onDone = { rawToken ->
+                    showTokenDialog = false
+                    if (rawToken.isBlank()) return@NameDialog
+                    signingIn = true
+                    signInError = null
+                    scope.launch {
+                        val res = container.cloudAuth.signInWithToken(rawToken)
+                        signingIn = false
+                        res.onFailure { e ->
+                            signInError = e.localizedMessage ?: "Couldn't verify Discord token."
+                        }
+                    }
+                },
+                onDismiss = { showTokenDialog = false },
+            )
+        }
     }
 }
 
@@ -284,18 +303,17 @@ private fun CloudSignedInHub(
         }
     }
 
-    // When listener returns from DiscordSignInActivity, sync Discord link onto registered Orbit profile
+    // Sync updated Discord handle onto an already-registered Orbit profile if it changed on Discord
     LifecycleResumeEffect(currentProfile?.uid, discordUser?.id, discordUser?.username) {
         val prof = currentProfile
         val dc = discordUser
-        if (prof != null && dc != null && (prof.discordId != dc.id || prof.discordUsername != CloudValidation.normalizeDiscordKey(dc.username))) {
+        if (prof != null && dc != null && prof.discordUsername != CloudValidation.normalizeDiscordKey(dc.username)) {
             vm.registerOrUpdateProfile(
                 displayName = prof.displayName,
                 rawHandle = prof.handle,
                 discordUser = dc,
-                arySyncEnabled = prof.arySyncEnabled,
                 cardShared = prof.cardShared,
-                successMessage = "Linked Discord @${dc.username}.",
+                successMessage = "Updated Discord handle @${dc.username}.",
             )
         }
         onPauseOrDispose { }
@@ -332,17 +350,16 @@ private fun CloudSignedInHub(
                     if (profile == null) {
                         item(key = "register") {
                             CloudRegistrationPane(
-                                suggestedName = suggestedName.ifBlank { "Listener" },
+                                uid = uid,
+                                suggestedName = suggestedName.ifBlank { discordUser?.displayName ?: "Listener" },
                                 discordUser = discordUser,
                                 busy = busy,
                                 feedback = feedback,
-                                onLinkDiscord = { context.startActivity(DiscordSignInActivity.intent(context)) },
-                                onSubmit = { name, handle, arySync ->
+                                onSubmit = { name, handle ->
                                     vm.registerOrUpdateProfile(
                                         displayName = name,
                                         rawHandle = handle,
                                         discordUser = discordUser,
-                                        arySyncEnabled = arySync,
                                         cardShared = false,
                                         successMessage = "Welcome to Orbit Cloud, @$handle.",
                                     )
@@ -430,22 +447,8 @@ private fun CloudSignedInHub(
                                 CloudAccountTab(
                                     profile = profile,
                                     discordUser = discordUser,
-                                    busy = busy,
                                     onEditName = { renamingProfile = true },
-                                    onToggleArySync = { vm.setArySyncEnabled(!profile.arySyncEnabled) },
                                     onOpenAry = { actions.go(Route.Ary()) },
-                                    onLinkDiscord = { context.startActivity(DiscordSignInActivity.intent(context)) },
-                                    onUnlinkDiscord = {
-                                        container.discordStore.signOut()
-                                        vm.registerOrUpdateProfile(
-                                            displayName = profile.displayName,
-                                            rawHandle = profile.handle,
-                                            discordUser = null,
-                                            arySyncEnabled = profile.arySyncEnabled,
-                                            cardShared = profile.cardShared,
-                                            successMessage = "Unlinked Discord from Orbit profile.",
-                                        )
-                                    },
                                     onOpenDiscordRpc = { actions.nav.open(Route.Discord) },
                                     onSignOut = { scope.launch { container.cloudAuth.signOut() } },
                                 )
@@ -494,7 +497,6 @@ private fun CloudSignedInHub(
                             displayName = newName,
                             rawHandle = currentProfile.handle,
                             discordUser = discordUser,
-                            arySyncEnabled = currentProfile.arySyncEnabled,
                             cardShared = currentProfile.cardShared,
                             successMessage = "Updated display name.",
                         )
@@ -512,20 +514,19 @@ private fun CloudSignedInHub(
 
 @Composable
 private fun CloudRegistrationPane(
+    uid: String,
     suggestedName: String,
     discordUser: DiscordUser?,
     busy: Boolean,
     feedback: Pair<Boolean, String>?,
-    onLinkDiscord: () -> Unit,
-    onSubmit: (displayName: String, handle: String, arySync: Boolean) -> Unit,
+    onSubmit: (displayName: String, handle: String) -> Unit,
     onSignOut: () -> Unit,
 ) {
     val defaultHandle = remember(discordUser?.username, suggestedName) {
         CloudValidation.sanitizeHandleSuggestion(discordUser?.username ?: suggestedName)
     }
-    var displayName by rememberSaveable { mutableStateOf(discordUser?.displayName ?: suggestedName) }
+    var displayName by rememberSaveable { mutableStateOf(discordUser?.displayName?.ifBlank { null } ?: suggestedName) }
     var handle by rememberSaveable(defaultHandle) { mutableStateOf(defaultHandle) }
-    var arySync by rememberSaveable { mutableStateOf(true) }
 
     Column(
         Modifier
@@ -571,36 +572,14 @@ private fun CloudRegistrationPane(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Txt("Discord link", Type.TitleSmall)
+                    Txt("Discord account", Type.TitleSmall)
                     Txt(
-                        discordUser?.let { "Linked @${it.username}" } ?: "Optional: let friends find you by Discord username",
+                        discordUser?.let { "Signed in as @${it.username} · ID $uid" }
+                            ?: "Signed in with Discord ID $uid",
                         Type.Meta,
                         color = Ink.Grey,
                     )
                 }
-                GlassPill(
-                    text = if (discordUser == null) "Link Discord" else "Linked",
-                    small = true,
-                    lit = discordUser != null,
-                    modifier = Modifier.testTag("cloud_register_discord_button"),
-                    onClick = onLinkDiscord,
-                )
-            }
-            PanelDivider()
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Txt("Sync Ary conversations", Type.TitleSmall)
-                    Txt("Keep playlist chat history across sessions", Type.Meta, color = Ink.Grey)
-                }
-                PillToggle(
-                    on = arySync,
-                    onToggle = { arySync = !arySync },
-                    label = "Sync Ary conversations",
-                    modifier = Modifier.testTag("cloud_register_ary_toggle"),
-                )
             }
         }
         feedback?.let { (_, msg) ->
@@ -612,11 +591,11 @@ private fun CloudRegistrationPane(
             text = if (busy) "Creating profile…" else "Complete registration",
             lit = true,
             modifier = Modifier.fillMaxWidth().testTag("cloud_register_submit_button"),
-            onClick = { if (!busy) onSubmit(displayName, handle, arySync) },
+            onClick = { if (!busy) onSubmit(displayName, handle) },
         )
         Spacer(Modifier.height(14.dp))
         GlassPill(
-            text = "Use a different Google account",
+            text = "Use a different Discord account",
             small = true,
             modifier = Modifier.testTag("cloud_register_signout_button"),
             onClick = onSignOut,
@@ -713,12 +692,8 @@ private fun CollabPlaylistsTab(
 private fun CloudAccountTab(
     profile: UserProfile,
     discordUser: DiscordUser?,
-    busy: Boolean,
     onEditName: () -> Unit,
-    onToggleArySync: () -> Unit,
     onOpenAry: () -> Unit,
-    onLinkDiscord: () -> Unit,
-    onUnlinkDiscord: () -> Unit,
     onOpenDiscordRpc: () -> Unit,
     onSignOut: () -> Unit,
 ) {
@@ -751,49 +726,13 @@ private fun CloudAccountTab(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Txt("Ary conversation sync", Type.TitleSmall)
-                    Txt(
-                        if (profile.arySyncEnabled) "Synced across sessions" else "Paused (local-only mode)",
-                        Type.Meta,
-                        color = Ink.Grey,
-                    )
-                }
-                PillToggle(
-                    on = profile.arySyncEnabled,
-                    onToggle = { if (!busy) onToggleArySync() },
-                    label = "Ary conversation sync",
-                    modifier = Modifier.testTag("cloud_ary_sync_toggle"),
-                )
-            }
-            PanelDivider()
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
                     Txt("Discord account", Type.TitleSmall)
+                    val username = discordUser?.username ?: profile.discordUsername
                     Txt(
-                        discordUser?.let { "Linked as @${it.username}" }
-                            ?: profile.discordUsername?.let { "Linked as @$it" }
-                            ?: "Optional: let friends add you by Discord handle",
+                        if (!username.isNullOrBlank()) "@$username  ·  ID ${profile.uid}"
+                        else "ID ${profile.uid}",
                         Type.Meta,
                         color = Ink.Grey,
-                    )
-                }
-                if (discordUser == null && profile.discordUsername == null) {
-                    GlassPill(
-                        text = "Link",
-                        small = true,
-                        lit = true,
-                        modifier = Modifier.testTag("cloud_account_link_discord_button"),
-                        onClick = onLinkDiscord,
-                    )
-                } else {
-                    GlassPill(
-                        text = "Unlink",
-                        small = true,
-                        modifier = Modifier.testTag("cloud_account_unlink_discord_button"),
-                        onClick = { if (!busy) onUnlinkDiscord() },
                     )
                 }
             }

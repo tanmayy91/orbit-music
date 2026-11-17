@@ -96,7 +96,6 @@ class CloudViewModel(
         displayName: String,
         rawHandle: String,
         discordUser: DiscordUser?,
-        arySyncEnabled: Boolean,
         cardShared: Boolean,
         successMessage: String = "Profile saved.",
     ) {
@@ -108,7 +107,6 @@ class CloudViewModel(
                 displayName = displayName,
                 rawHandle = rawHandle,
                 discordUser = discordUser,
-                arySyncEnabled = arySyncEnabled,
                 cardShared = cardShared,
             )
             _busy.value = false
@@ -119,12 +117,6 @@ class CloudViewModel(
                 },
             )
         }
-    }
-
-    fun setArySyncEnabled(enabled: Boolean) = runAction(
-        if (enabled) "Ary conversation sync turned on." else "Ary conversation sync paused.",
-    ) {
-        repository.setArySyncEnabled(currentUserId, enabled)
     }
 
     fun sendFriendRequest(profile: UserProfile, query: String, onSent: () -> Unit = {}) {

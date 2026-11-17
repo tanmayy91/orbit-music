@@ -162,7 +162,7 @@ internal fun FriendsAndCardsContent(
         }
 
         Spacer(Modifier.height(28.dp))
-        SectionHeading("Add a friend", strapline = "Orbit @handle or linked Discord username")
+        SectionHeading("Add a friend", strapline = "Orbit @handle, Discord username, or ID")
         Spacer(Modifier.height(12.dp))
         Row(
             Modifier
@@ -175,7 +175,7 @@ internal fun FriendsAndCardsContent(
             Icon(Glyph.Profile, size = 16.dp, color = Ink.Grey)
             Spacer(Modifier.width(10.dp))
             Box(Modifier.weight(1f)) {
-                if (query.isEmpty()) Txt("@handle or Discord username", Type.TitleSmall, color = Ink.Dim, maxLines = 1)
+                if (query.isEmpty()) Txt("@handle, Discord username, or ID", Type.TitleSmall, color = Ink.Dim, maxLines = 1)
                 BasicTextField(
                     value = query,
                     onValueChange = { query = it },

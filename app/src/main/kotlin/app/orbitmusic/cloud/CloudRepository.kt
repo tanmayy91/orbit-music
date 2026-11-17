@@ -1,38 +1,232 @@
 package app.orbitmusic.cloud
 
-import android.content.Context
-import app.orbitmusic.R
+import app.orbitmusic.BuildConfig
+import app.orbitmusic.await
 import app.orbitmusic.core.data.DiscordUser
 import app.orbitmusic.core.model.Track
 import app.orbitmusic.core.model.withoutEmoji
 import app.orbitmusic.ui.profile.ProfileStats
-import com.google.firebase.Firebase
-import com.google.firebase.Timestamp
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.auth
-import com.google.firebase.firestore.DocumentSnapshot
-import com.google.firebase.firestore.FieldValue
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.FirebaseFirestoreException
-import com.google.firebase.firestore.snapshots
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.time.Instant
 import java.util.Locale
 
 class CloudRepository(
-    private val db: FirebaseFirestore,
-    private val auth: FirebaseAuth = Firebase.auth,
+    private val http: OkHttpClient,
+    private val auth: CloudAuthManager,
 ) {
-    constructor(context: Context) : this(
-        FirebaseFirestore.getInstance(
-            context.applicationContext.getString(R.string.firestore_database_id)
-        )
-    )
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+        coerceInputValues = true
+    }
+
+    private val refreshBus = MutableSharedFlow<String>(extraBufferCapacity = 32)
+
+    private fun notifyTopic(vararg topics: String) {
+        topics.forEach { refreshBus.tryEmit(it) }
+    }
 
     private fun requireUid(): String =
-        auth.currentUser?.uid ?: error("Sign in with Google to use cloud features.")
+        auth.currentUser?.uid ?: error("Sign in with Discord to use cloud features.")
+
+    private fun requireConfig(): Pair<String, String> {
+        val url = BuildConfig.SUPABASE_URL.trim().trimEnd('/')
+        val key = BuildConfig.SUPABASE_ANON_KEY.trim()
+        if (
+            !url.startsWith("https://") ||
+            url.contains("your-project-id") ||
+            key.isBlank() ||
+            key == "your_supabase_anon_key_here"
+        ) {
+            error("Supabase is not configured yet. Add SUPABASE_URL and SUPABASE_ANON_KEY in AI Studio Secrets.")
+        }
+        return url to key
+    }
+
+    private fun nowIso(): String = Instant.now().toString()
+
+    private fun pgArrayLiteral(values: List<String>): String =
+        values.joinToString(prefix = "{", postfix = "}", separator = ",") { v ->
+            val escaped = v.replace("\\", "\\\\").replace("\"", "\\\"")
+            "\"$escaped\""
+        }
+
+    private fun <T> observeTopic(
+        topic: String,
+        intervalMs: Long = POLL_INTERVAL_MS,
+        fetch: suspend () -> T,
+    ): Flow<T> = flow {
+        emit(fetch())
+        while (true) {
+            withTimeoutOrNull(intervalMs) {
+                refreshBus.filter { it == topic || it == "*" }.first()
+            }
+            emit(fetch())
+        }
+    }
+
+    private suspend fun <T> restGetList(
+        table: String,
+        queryParams: List<Pair<String, String>>,
+        serializer: KSerializer<T>,
+    ): List<T> = withContext(Dispatchers.IO) {
+        val (baseUrl, anonKey) = requireConfig()
+        val urlBuilder = "$baseUrl/rest/v1/$table".toHttpUrl().newBuilder()
+        queryParams.forEach { (k, v) -> urlBuilder.addQueryParameter(k, v) }
+        val request = Request.Builder()
+            .url(urlBuilder.build())
+            .header("apikey", anonKey)
+            .header("Authorization", "Bearer $anonKey")
+            .header("Accept", "application/json")
+            .get()
+            .build()
+        http.newCall(request).await().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) {
+                throw IllegalStateException(parseSupabaseError(resp.code, body))
+            }
+            if (body.isBlank()) emptyList()
+            else json.decodeFromString(ListSerializer(serializer), body)
+        }
+    }
+
+    private suspend fun <T> restPostList(
+        table: String,
+        payload: JsonElement,
+        serializer: KSerializer<T>,
+        queryParams: List<Pair<String, String>> = emptyList(),
+        prefer: String = "return=representation",
+    ): List<T> = withContext(Dispatchers.IO) {
+        val (baseUrl, anonKey) = requireConfig()
+        val urlBuilder = "$baseUrl/rest/v1/$table".toHttpUrl().newBuilder()
+        queryParams.forEach { (k, v) -> urlBuilder.addQueryParameter(k, v) }
+        val request = Request.Builder()
+            .url(urlBuilder.build())
+            .header("apikey", anonKey)
+            .header("Authorization", "Bearer $anonKey")
+            .header("Content-Type", "application/json")
+            .header("Prefer", prefer)
+            .post(payload.toString().toRequestBody(JSON_MEDIA))
+            .build()
+        http.newCall(request).await().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) {
+                throw IllegalStateException(parseSupabaseError(resp.code, body))
+            }
+            if (body.isBlank()) emptyList()
+            else json.decodeFromString(ListSerializer(serializer), body)
+        }
+    }
+
+    private suspend fun restPostUnit(
+        table: String,
+        payload: JsonElement,
+        queryParams: List<Pair<String, String>> = emptyList(),
+        prefer: String = "return=minimal",
+    ) = withContext(Dispatchers.IO) {
+        val (baseUrl, anonKey) = requireConfig()
+        val urlBuilder = "$baseUrl/rest/v1/$table".toHttpUrl().newBuilder()
+        queryParams.forEach { (k, v) -> urlBuilder.addQueryParameter(k, v) }
+        val request = Request.Builder()
+            .url(urlBuilder.build())
+            .header("apikey", anonKey)
+            .header("Authorization", "Bearer $anonKey")
+            .header("Content-Type", "application/json")
+            .header("Prefer", prefer)
+            .post(payload.toString().toRequestBody(JSON_MEDIA))
+            .build()
+        http.newCall(request).await().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) {
+                throw IllegalStateException(parseSupabaseError(resp.code, body))
+            }
+        }
+    }
+
+    private suspend fun restPatchUnit(
+        table: String,
+        queryParams: List<Pair<String, String>>,
+        payload: JsonObject,
+    ) = withContext(Dispatchers.IO) {
+        val (baseUrl, anonKey) = requireConfig()
+        val urlBuilder = "$baseUrl/rest/v1/$table".toHttpUrl().newBuilder()
+        queryParams.forEach { (k, v) -> urlBuilder.addQueryParameter(k, v) }
+        val request = Request.Builder()
+            .url(urlBuilder.build())
+            .header("apikey", anonKey)
+            .header("Authorization", "Bearer $anonKey")
+            .header("Content-Type", "application/json")
+            .header("Prefer", "return=minimal")
+            .patch(payload.toString().toRequestBody(JSON_MEDIA))
+            .build()
+        http.newCall(request).await().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) {
+                throw IllegalStateException(parseSupabaseError(resp.code, body))
+            }
+        }
+    }
+
+    private suspend fun restDelete(
+        table: String,
+        queryParams: List<Pair<String, String>>,
+    ) = withContext(Dispatchers.IO) {
+        val (baseUrl, anonKey) = requireConfig()
+        val urlBuilder = "$baseUrl/rest/v1/$table".toHttpUrl().newBuilder()
+        queryParams.forEach { (k, v) -> urlBuilder.addQueryParameter(k, v) }
+        val request = Request.Builder()
+            .url(urlBuilder.build())
+            .header("apikey", anonKey)
+            .header("Authorization", "Bearer $anonKey")
+            .delete()
+            .build()
+        http.newCall(request).await().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) {
+                throw IllegalStateException(parseSupabaseError(resp.code, body))
+            }
+        }
+    }
+
+    private fun parseSupabaseError(code: Int, body: String): String {
+        val parsedMsg = runCatching {
+            val obj = json.parseToJsonElement(body).jsonObject
+            obj["message"]?.jsonPrimitive?.content
+                ?: obj["error_description"]?.jsonPrimitive?.content
+                ?: obj["error"]?.jsonPrimitive?.content
+        }.getOrNull()
+        return when {
+            code == 401 || code == 403 -> parsedMsg ?: "Supabase authentication rejected ($code). Check SUPABASE_ANON_KEY and table grants."
+            code == 404 -> "Supabase table not found (404). Run supabase_schema.sql in your Supabase SQL Editor."
+            !parsedMsg.isNullOrBlank() -> parsedMsg
+            else -> "Supabase request failed (HTTP $code)."
+        }
+    }
 
     private fun formatHours(minutes: Long): String = when {
         minutes < 60 -> "$minutes min"
@@ -40,27 +234,29 @@ class CloudRepository(
         else -> "${minutes / 60} hr"
     }
 
-    // --- 1. PROFILE, HANDLE REGISTRATION & DISCORD LINK ---
+    // --- 1. PROFILE, HANDLE REGISTRATION & DISCORD IDENTITY ---
 
     fun observeUserProfile(uid: String): Flow<UserProfile?> =
-        db.collection("users").document(uid)
-            .snapshots()
-            .map { snap ->
-                if (snap.exists()) snap.toObject(UserProfile::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
-                else null
-            }
+        observeTopic("profile:$uid") {
+            restGetList(
+                table = "orbit_users",
+                queryParams = listOf("uid" to "eq.$uid", "select" to "*"),
+                serializer = UserProfile.serializer(),
+            ).firstOrNull()
+        }
 
     suspend fun getUserProfile(uid: String): Result<UserProfile?> =
         try {
-            val snap = db.collection("users").document(uid).get().await()
-            val profile = if (snap.exists()) {
-                snap.toObject(UserProfile::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
-            } else null
+            val profile = restGetList(
+                table = "orbit_users",
+                queryParams = listOf("uid" to "eq.$uid", "select" to "*"),
+                serializer = UserProfile.serializer(),
+            ).firstOrNull()
             Result.success(profile)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.GET, "users/$uid")
+            handleCloudError(e, OperationType.GET, "orbit_users/$uid", uid)
             Result.failure(e)
         }
 
@@ -68,7 +264,6 @@ class CloudRepository(
         displayName: String,
         rawHandle: String,
         discordUser: DiscordUser?,
-        arySyncEnabled: Boolean = true,
         cardShared: Boolean = false,
     ): Result<UserProfile> {
         val uid = try {
@@ -86,274 +281,121 @@ class CloudRepository(
             return Result.failure(IllegalArgumentException("Handle must be 3–30 lowercase letters, numbers, or underscores."))
         }
 
-        val discordKey = discordUser?.username?.let(CloudValidation::normalizeDiscordKey)
+        val discordKey = (discordUser?.username ?: auth.currentUser?.username)
+            ?.let(CloudValidation::normalizeDiscordKey)
             ?.takeIf { CloudValidation.isValidDiscordKey(it) }
-        val discordId = discordUser?.id?.trim()?.takeIf { it.length in 4..40 }
+        val avatarUrl = discordUser?.avatarUrl ?: auth.currentUser?.avatarUrl
 
         return try {
-            val handleRef = db.collection("listenerDirectory").document(handle)
-            val existingHandleSnap = handleRef.get().await()
-            if (existingHandleSnap.exists() && existingHandleSnap.getString("uid") != uid) {
+            val existingHandle = restGetList(
+                table = "orbit_users",
+                queryParams = listOf("handle" to "eq.$handle", "select" to "uid,handle,display_name,discord_username"),
+                serializer = DirectoryEntry.serializer(),
+            ).firstOrNull()
+            if (existingHandle != null && existingHandle.uid != uid) {
                 return Result.failure(IllegalStateException("@$handle is already taken."))
             }
 
             if (discordKey != null) {
-                val dcRef = db.collection("discordDirectory").document(discordKey)
-                val existingDc = dcRef.get().await()
-                if (existingDc.exists() && existingDc.getString("uid") != uid) {
+                val existingDc = restGetList(
+                    table = "orbit_users",
+                    queryParams = listOf("discord_username" to "eq.$discordKey", "select" to "uid,handle,display_name,discord_username"),
+                    serializer = DirectoryEntry.serializer(),
+                ).firstOrNull()
+                if (existingDc != null && existingDc.uid != uid) {
                     return Result.failure(IllegalStateException("Discord @$discordKey is already linked to another Orbit profile."))
                 }
             }
 
-            val userRef = db.collection("users").document(uid)
-            val existingUserSnap = userRef.get().await()
-            val existingProfile = if (existingUserSnap.exists()) {
-                existingUserSnap.toObject(UserProfile::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
-            } else null
-
-            val batch = db.batch()
-            if (existingProfile == null) {
-                val userMap = mutableMapOf<String, Any?>(
-                    "uid" to uid,
-                    "displayName" to cleanName,
-                    "handle" to handle,
-                    "discordUsername" to discordKey,
-                    "discordId" to discordId,
-                    "arySyncEnabled" to arySyncEnabled,
-                    "cardShared" to cardShared,
-                    "createdAt" to FieldValue.serverTimestamp(),
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                ).filterValues { it != null }
-                batch.set(userRef, userMap)
-            } else {
-                val updateMap = mutableMapOf<String, Any>(
-                    "displayName" to cleanName,
-                    "handle" to handle,
-                    "arySyncEnabled" to arySyncEnabled,
-                    "cardShared" to cardShared,
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                )
-                if (discordKey != null && discordId != null) {
-                    updateMap["discordUsername"] = discordKey
-                    updateMap["discordId"] = discordId
-                } else {
-                    if (existingProfile.discordUsername != null) updateMap["discordUsername"] = FieldValue.delete()
-                    if (existingProfile.discordId != null) updateMap["discordId"] = FieldValue.delete()
-                }
-                batch.update(userRef, updateMap)
+            val payload = buildJsonObject {
+                put("uid", uid)
+                put("display_name", cleanName)
+                put("handle", handle)
+                if (discordKey != null) put("discord_username", discordKey) else put("discord_username", JsonNull)
+                if (avatarUrl != null) put("discord_avatar_url", avatarUrl) else put("discord_avatar_url", JsonNull)
+                put("card_shared", cardShared)
+                put("updated_at", nowIso())
             }
 
-            // Directory entry
-            val oldHandle = existingProfile?.handle
-            if (oldHandle != null && oldHandle != handle) {
-                batch.delete(db.collection("listenerDirectory").document(oldHandle))
-            }
-            if (oldHandle == null || oldHandle != handle || !existingHandleSnap.exists()) {
-                val dirCreateMap = mutableMapOf<String, Any?>(
-                    "uid" to uid,
-                    "handle" to handle,
-                    "displayName" to cleanName,
-                    "discordUsername" to discordKey,
-                    "createdAt" to FieldValue.serverTimestamp(),
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                ).filterValues { it != null }
-                batch.set(handleRef, dirCreateMap)
-            } else {
-                val dirUpdateMap = mutableMapOf<String, Any>(
-                    "displayName" to cleanName,
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                )
-                if (discordKey != null) {
-                    dirUpdateMap["discordUsername"] = discordKey
-                } else if (existingHandleSnap.contains("discordUsername")) {
-                    dirUpdateMap["discordUsername"] = FieldValue.delete()
-                }
-                batch.update(handleRef, dirUpdateMap)
-            }
+            val saved = restPostList(
+                table = "orbit_users",
+                payload = payload,
+                serializer = UserProfile.serializer(),
+                queryParams = listOf("on_conflict" to "uid"),
+                prefer = "resolution=merge-duplicates,return=representation",
+            ).firstOrNull() ?: UserProfile(
+                uid = uid,
+                displayName = cleanName,
+                handle = handle,
+                discordUsername = discordKey,
+                discordAvatarUrl = avatarUrl,
+                cardShared = cardShared,
+            )
 
-            // Discord directory entry
-            val oldDc = existingProfile?.discordUsername?.let(CloudValidation::normalizeDiscordKey)
-            if (oldDc != null && oldDc != discordKey) {
-                batch.delete(db.collection("discordDirectory").document(oldDc))
-            }
-            if (discordKey != null) {
-                val dcRef = db.collection("discordDirectory").document(discordKey)
-                if (oldDc == null || oldDc != discordKey) {
-                    batch.set(
-                        dcRef,
-                        mapOf(
-                            "uid" to uid,
-                            "discordUsername" to discordKey,
-                            "handle" to handle,
-                            "displayName" to cleanName,
-                            "createdAt" to FieldValue.serverTimestamp(),
-                            "updatedAt" to FieldValue.serverTimestamp(),
-                        ),
-                    )
-                } else {
-                    batch.update(
-                        dcRef,
-                        mapOf(
-                            "handle" to handle,
-                            "displayName" to cleanName,
-                            "updatedAt" to FieldValue.serverTimestamp(),
-                        ),
-                    )
-                }
-            }
-
-            batch.commit().await()
-            val refreshed = userRef.get().await()
-                .toObject(UserProfile::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
-                ?: UserProfile(
-                    id = uid,
-                    uid = uid,
-                    displayName = cleanName,
-                    handle = handle,
-                    discordUsername = discordKey,
-                    discordId = discordId,
-                    arySyncEnabled = arySyncEnabled,
-                    cardShared = cardShared,
-                )
-            Result.success(refreshed)
+            notifyTopic("profile:$uid")
+            Result.success(saved)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.WRITE, "users/$uid")
+            handleCloudError(e, OperationType.WRITE, "orbit_users/$uid", uid)
             Result.failure(e)
         }
     }
 
-    suspend fun setArySyncEnabled(uid: String, enabled: Boolean): Result<Unit> =
-        try {
-            val currentUid = requireUid()
-            check(currentUid == uid) { "Signed-in user changed." }
-            db.collection("users").document(uid)
-                .update(
-                    mapOf(
-                        "arySyncEnabled" to enabled,
-                        "updatedAt" to FieldValue.serverTimestamp(),
-                    ),
-                )
-                .await()
-            Result.success(Unit)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, "users/$uid")
-            Result.failure(e)
-        }
-
-    // --- 2. ARY CONVERSATION SYNC ---
-
-    fun observeAryMessages(uid: String): Flow<List<ArySyncMessage>> =
-        db.collection("users").document(uid).collection("aryMessages")
-            .snapshots()
-            .map { snap ->
-                snap.toObjects(ArySyncMessage::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
-                    .sortedWith(compareBy<ArySyncMessage> { it.seq }.thenBy { it.createdAt ?: Timestamp(0, 0) })
-            }
-
-    suspend fun saveAryMessage(
-        uid: String,
-        role: String,
-        text: String,
-        changeSummaries: List<String>,
-        focusedPlaylistTitle: String?,
-        seq: Int,
-    ): Result<Unit> {
-        val boundedText = text.trim().take(4000)
-        if (boundedText.isEmpty()) return Result.success(Unit)
-        return try {
-            val currentUid = requireUid()
-            check(currentUid == uid) { "Signed-in user changed." }
-            val msgRef = db.collection("users").document(uid).collection("aryMessages").document()
-            val payload = mutableMapOf<String, Any?>(
-                "role" to if (role == "assistant") "assistant" else "user",
-                "text" to boundedText,
-                "changeSummaries" to changeSummaries.take(15).map { it.trim().take(200) }.filter { it.isNotEmpty() },
-                "focusedPlaylistTitle" to focusedPlaylistTitle?.trim()?.take(80)?.takeIf { it.isNotEmpty() },
-                "seq" to seq.coerceAtLeast(0),
-                "createdAt" to FieldValue.serverTimestamp(),
-            ).filterValues { it != null }
-            msgRef.set(payload).await()
-            Result.success(Unit)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.CREATE, "users/$uid/aryMessages")
-            Result.failure(e)
-        }
-    }
-
-    suspend fun clearAryMessages(uid: String): Result<Unit> =
-        try {
-            val currentUid = requireUid()
-            check(currentUid == uid) { "Signed-in user changed." }
-            val snap = db.collection("users").document(uid).collection("aryMessages").get().await()
-            if (!snap.isEmpty) {
-                val batch = db.batch()
-                snap.documents.forEach { batch.delete(it.reference) }
-                batch.commit().await()
-            }
-            Result.success(Unit)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.DELETE, "users/$uid/aryMessages")
-            Result.failure(e)
-        }
-
-    // --- 3. FRIENDS & LISTENER LOOKUP ---
+    // --- 2. FRIENDS & LISTENER LOOKUP ---
 
     suspend fun resolveRecipient(rawQuery: String): Result<DirectoryEntry> {
         val cleaned = rawQuery.trim().removePrefix("@").lowercase(Locale.ROOT)
+        val rawId = rawQuery.trim()
         if (cleaned.length < 2) {
-            return Result.failure(IllegalArgumentException("Enter a listener @handle or linked Discord username."))
+            return Result.failure(IllegalArgumentException("Enter a listener @handle, Discord username, or Discord ID."))
         }
         return try {
-            requireUid()
-            if (CloudValidation.isValidHandle(cleaned)) {
-                val handleSnap = db.collection("listenerDirectory").document(cleaned).get().await()
-                if (handleSnap.exists()) {
-                    handleSnap.toObject(DirectoryEntry::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
-                        ?.let { return Result.success(it) }
-                }
+            val myUid = requireUid()
+            val filters = buildList {
+                if (CloudValidation.isValidHandle(cleaned)) add("handle.eq.$cleaned")
+                if (CloudValidation.isValidDiscordKey(cleaned)) add("discord_username.eq.$cleaned")
+                if (rawId.all { it.isDigit() } && rawId.length in 15..25) add("uid.eq.$rawId")
             }
-            if (CloudValidation.isValidDiscordKey(cleaned)) {
-                val dcSnap = db.collection("discordDirectory").document(cleaned).get().await()
-                if (dcSnap.exists()) {
-                    val dc = dcSnap.toObject(DiscordLookupEntry::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
-                    if (dc != null) {
-                        return Result.success(
-                            DirectoryEntry(
-                                id = dc.handle,
-                                uid = dc.uid,
-                                handle = dc.handle,
-                                displayName = dc.displayName,
-                                discordUsername = dc.discordUsername,
-                            )
-                        )
-                    }
-                }
+            if (filters.isEmpty()) {
+                return Result.failure(IllegalArgumentException("Enter a valid Orbit @handle, Discord username, or Discord ID."))
             }
-            Result.failure(NoSuchElementException("No Orbit Music listener found for @$cleaned."))
+            val found = restGetList(
+                table = "orbit_users",
+                queryParams = listOf(
+                    "or" to "(${filters.joinToString(",")})",
+                    "select" to "uid,handle,display_name,discord_username",
+                    "limit" to "1",
+                ),
+                serializer = DirectoryEntry.serializer(),
+            ).firstOrNull()
+
+            if (found != null) {
+                Result.success(found)
+            } else {
+                handleCloudError(NoSuchElementException("Not found"), OperationType.GET, "orbit_users/$cleaned", myUid)
+                Result.failure(NoSuchElementException("No Orbit Music listener found for $rawQuery."))
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.GET, "listenerDirectory/$cleaned")
+            handleCloudError(e, OperationType.GET, "orbit_users/$cleaned")
             Result.failure(e)
         }
     }
 
     fun observeFriendships(uid: String): Flow<List<Friendship>> =
-        db.collection("friendships")
-            .whereArrayContains("memberUids", uid)
-            .snapshots()
-            .map { snap ->
-                snap.toObjects(Friendship::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
-                    .sortedByDescending { it.updatedAt ?: it.createdAt ?: Timestamp(0, 0) }
-            }
+        observeTopic("friendships:$uid") {
+            restGetList(
+                table = "friendships",
+                queryParams = listOf(
+                    "member_uids" to "cs.${pgArrayLiteral(listOf(uid))}",
+                    "select" to "*",
+                    "order" to "updated_at.desc",
+                ),
+                serializer = Friendship.serializer(),
+            )
+        }
 
     suspend fun sendFriendRequest(myProfile: UserProfile, recipient: DirectoryEntry): Result<Unit> {
         val uid = try {
@@ -365,37 +407,40 @@ class CloudRepository(
             return Result.failure(IllegalArgumentException("You cannot send a friend request to yourself."))
         }
         val fid = CloudValidation.pairDocId(uid, recipient.uid)
-        val ref = db.collection("friendships").document(fid)
         return try {
-            val existing = ref.get().await()
-            if (existing.exists()) {
-                val status = existing.getString("status")
+            val existing = restGetList(
+                table = "friendships",
+                queryParams = listOf("id" to "eq.$fid", "select" to "*"),
+                serializer = Friendship.serializer(),
+            ).firstOrNull()
+            if (existing != null) {
                 return Result.failure(
                     IllegalStateException(
-                        if (status == "accepted") "You are already friends with @${recipient.handle}."
+                        if (existing.accepted) "You are already friends with @${recipient.handle}."
                         else "A friend request with @${recipient.handle} is already pending."
                     )
                 )
             }
-            ref.set(
-                mapOf(
-                    "memberUids" to listOf(uid, recipient.uid),
-                    "requesterUid" to uid,
-                    "recipientUid" to recipient.uid,
-                    "requesterName" to myProfile.displayName.take(40),
-                    "requesterHandle" to myProfile.handle,
-                    "recipientName" to recipient.displayName.take(40),
-                    "recipientHandle" to recipient.handle,
-                    "status" to "pending",
-                    "createdAt" to FieldValue.serverTimestamp(),
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                ),
-            ).await()
+
+            val payload = buildJsonObject {
+                put("id", fid)
+                put("member_uids", buildJsonArray { add(JsonPrimitive(uid)); add(JsonPrimitive(recipient.uid)) })
+                put("requester_uid", uid)
+                put("recipient_uid", recipient.uid)
+                put("requester_name", myProfile.displayName.take(40))
+                put("requester_handle", myProfile.handle)
+                put("recipient_name", recipient.displayName.take(40))
+                put("recipient_handle", recipient.handle)
+                put("status", "pending")
+                put("updated_at", nowIso())
+            }
+            restPostUnit("friendships", payload)
+            notifyTopic("friendships:$uid", "friendships:${recipient.uid}")
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.CREATE, "friendships/$fid")
+            handleCloudError(e, OperationType.CREATE, "friendships/$fid", uid)
             Result.failure(e)
         }
     }
@@ -409,95 +454,88 @@ class CloudRepository(
         if (friendship.recipientUid != uid) {
             return Result.failure(IllegalStateException("Only the recipient can accept this request."))
         }
-        val ref = db.collection("friendships").document(friendship.id)
         return try {
-            ref.update(
-                mapOf(
-                    "status" to "accepted",
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                ),
-            ).await()
+            restPatchUnit(
+                table = "friendships",
+                queryParams = listOf("id" to "eq.${friendship.id}"),
+                payload = buildJsonObject {
+                    put("status", "accepted")
+                    put("updated_at", nowIso())
+                },
+            )
             val otherUid = friendship.otherUid(uid)
-            // Best-effort: register mutual visibility on published listening cards
-            runCatching {
-                val myCardRef = db.collection("listeningCards").document(uid)
-                val myCard = myCardRef.get().await()
-                if (myCard.exists()) {
-                    myCardRef.update(
-                        mapOf(
-                            "viewerUids" to FieldValue.arrayUnion(otherUid),
-                            "updatedAt" to FieldValue.serverTimestamp(),
-                        ),
-                    ).await()
-                }
-            }
-            runCatching {
-                val friendCardRef = db.collection("listeningCards").document(otherUid)
-                val friendCard = friendCardRef.get().await()
-                if (friendCard.exists()) {
-                    val viewers = (friendCard.get("viewerUids") as? List<*>)?.filterIsInstance<String>().orEmpty()
-                    if (uid !in viewers && viewers.size < 100) {
-                        friendCardRef.update("viewerUids", FieldValue.arrayUnion(uid)).await()
-                    }
-                }
-            }
+            runCatching { addCardViewer(ownerUid = uid, viewerUid = otherUid) }
+            runCatching { addCardViewer(ownerUid = otherUid, viewerUid = uid) }
+            notifyTopic("friendships:$uid", "cards:$uid")
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, "friendships/${friendship.id}")
+            handleCloudError(e, OperationType.UPDATE, "friendships/${friendship.id}", uid)
             Result.failure(e)
+        }
+    }
+
+    private suspend fun addCardViewer(ownerUid: String, viewerUid: String) {
+        val card = restGetList(
+            table = "listening_cards",
+            queryParams = listOf("uid" to "eq.$ownerUid", "select" to "*"),
+            serializer = ListeningCardSnapshot.serializer(),
+        ).firstOrNull() ?: return
+        if (viewerUid !in card.viewerUids && card.viewerUids.size < 100) {
+            val nextViewers = (card.viewerUids + viewerUid).distinct().take(100)
+            restPatchUnit(
+                table = "listening_cards",
+                queryParams = listOf("uid" to "eq.$ownerUid"),
+                payload = buildJsonObject {
+                    put("viewer_uids", buildJsonArray { nextViewers.forEach { add(JsonPrimitive(it)) } })
+                    put("updated_at", nowIso())
+                },
+            )
         }
     }
 
     suspend fun removeFriendship(friendshipId: String): Result<Unit> =
         try {
-            requireUid()
-            db.collection("friendships").document(friendshipId).delete().await()
+            val uid = requireUid()
+            restDelete("friendships", listOf("id" to "eq.$friendshipId"))
+            notifyTopic("friendships:$uid")
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.DELETE, "friendships/$friendshipId")
+            handleCloudError(e, OperationType.DELETE, "friendships/$friendshipId")
             Result.failure(e)
         }
 
     // --- 4. LISTENING CARD SHARING ---
 
     fun observeVisibleListeningCards(uid: String): Flow<List<ListeningCardSnapshot>> =
-        db.collection("listeningCards")
-            .whereArrayContains("viewerUids", uid)
-            .snapshots()
-            .map { snap ->
-                snap.toObjects(ListeningCardSnapshot::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
-                    .sortedByDescending { it.updatedAt ?: it.createdAt ?: Timestamp(0, 0) }
-            }
+        observeTopic("cards:$uid") {
+            restGetList(
+                table = "listening_cards",
+                queryParams = listOf(
+                    "viewer_uids" to "cs.${pgArrayLiteral(listOf(uid))}",
+                    "select" to "*",
+                    "order" to "updated_at.desc",
+                ),
+                serializer = ListeningCardSnapshot.serializer(),
+            )
+        }
 
     suspend fun syncFriendListeningCards(myUid: String, acceptedFriendUids: List<String>): Result<Unit> =
         try {
             val currentUid = requireUid()
             check(currentUid == myUid)
             for (friendUid in acceptedFriendUids) {
-                try {
-                    val cardRef = db.collection("listeningCards").document(friendUid)
-                    val snap = cardRef.get().await()
-                    if (snap.exists()) {
-                        val viewers = (snap.get("viewerUids") as? List<*>)?.filterIsInstance<String>().orEmpty()
-                        if (myUid !in viewers && viewers.size < 100) {
-                            cardRef.update("viewerUids", FieldValue.arrayUnion(myUid)).await()
-                        }
-                    }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: FirebaseFirestoreException) {
-                    // Friend hasn't published a card yet or unshared; skip silently
-                }
+                runCatching { addCardViewer(ownerUid = friendUid, viewerUid = myUid) }
             }
+            notifyTopic("cards:$myUid")
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.GET, "listeningCards")
+            handleCloudError(e, OperationType.GET, "listening_cards", myUid)
             Result.failure(e)
         }
 
@@ -515,8 +553,6 @@ class CloudRepository(
         if (uid != profile.uid) {
             return Result.failure(IllegalStateException("Signed-in user mismatch."))
         }
-        val cardRef = db.collection("listeningCards").document(uid)
-        val userRef = db.collection("users").document(uid)
         val viewers = (listOf(uid) + acceptedFriendUids).distinct().take(100)
         val topArtists = stats.artists.take(4).map { a ->
             val playsLabel = if (a.plays == 1) "1 play" else "${a.plays} plays"
@@ -527,64 +563,44 @@ class CloudRepository(
         val topSongArtist = topSong?.artistLine?.trim()?.take(140)?.takeIf { it.isNotEmpty() }
 
         return try {
-            val existing = cardRef.get().await()
-            val batch = db.batch()
-            if (!existing.exists()) {
-                val createMap = mutableMapOf<String, Any?>(
-                    "uid" to uid,
-                    "ownerName" to profile.displayName.take(40),
-                    "handle" to profile.handle,
-                    "discordUsername" to profile.discordUsername?.take(32),
-                    "persona" to stats.persona.take(40).ifBlank { "The listener" },
-                    "sinceLabel" to stats.sinceLabel?.take(40),
-                    "hoursLabel" to formatHours(stats.minutes).take(32),
-                    "plays" to stats.plays.coerceAtLeast(0),
-                    "artistCount" to stats.artistCount.coerceAtLeast(0),
-                    "bestStreak" to stats.bestStreak.coerceAtLeast(0),
-                    "topSongTitle" to topSongTitle,
-                    "topSongArtist" to topSongArtist,
-                    "topGenre" to topGenre?.trim()?.take(48)?.takeIf { it.isNotEmpty() },
-                    "topArtists" to topArtists,
-                    "viewerUids" to viewers,
-                    "createdAt" to FieldValue.serverTimestamp(),
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                ).filterValues { it != null }
-                batch.set(cardRef, createMap)
-            } else {
-                val updateMap = mutableMapOf<String, Any>(
-                    "ownerName" to profile.displayName.take(40),
-                    "handle" to profile.handle,
-                    "persona" to stats.persona.take(40).ifBlank { "The listener" },
-                    "hoursLabel" to formatHours(stats.minutes).take(32),
-                    "plays" to stats.plays.coerceAtLeast(0),
-                    "artistCount" to stats.artistCount.coerceAtLeast(0),
-                    "bestStreak" to stats.bestStreak.coerceAtLeast(0),
-                    "topArtists" to topArtists,
-                    "viewerUids" to viewers,
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                )
-                val dcUser = profile.discordUsername?.take(32)
-                if (dcUser != null) updateMap["discordUsername"] = dcUser
-                else if (existing.contains("discordUsername")) updateMap["discordUsername"] = FieldValue.delete()
-                stats.sinceLabel?.take(40)?.let { updateMap["sinceLabel"] = it }
-                topSongTitle?.let { updateMap["topSongTitle"] = it }
-                topSongArtist?.let { updateMap["topSongArtist"] = it }
-                topGenre?.trim()?.take(48)?.takeIf { it.isNotEmpty() }?.let { updateMap["topGenre"] = it }
-                batch.update(cardRef, updateMap)
+            val payload = buildJsonObject {
+                put("uid", uid)
+                put("owner_name", profile.displayName.take(40))
+                put("handle", profile.handle)
+                profile.discordUsername?.take(32)?.let { put("discord_username", it) } ?: put("discord_username", JsonNull)
+                put("persona", stats.persona.take(40).ifBlank { "The listener" })
+                stats.sinceLabel?.take(40)?.let { put("since_label", it) } ?: put("since_label", JsonNull)
+                put("hours_label", formatHours(stats.minutes).take(32))
+                put("plays", stats.plays.coerceAtLeast(0))
+                put("artist_count", stats.artistCount.coerceAtLeast(0))
+                put("best_streak", stats.bestStreak.coerceAtLeast(0))
+                topSongTitle?.let { put("top_song_title", it) } ?: put("top_song_title", JsonNull)
+                topSongArtist?.let { put("top_song_artist", it) } ?: put("top_song_artist", JsonNull)
+                topGenre?.trim()?.take(48)?.takeIf { it.isNotEmpty() }?.let { put("top_genre", it) } ?: put("top_genre", JsonNull)
+                put("top_artists", buildJsonArray { topArtists.forEach { add(JsonPrimitive(it)) } })
+                put("viewer_uids", buildJsonArray { viewers.forEach { add(JsonPrimitive(it)) } })
+                put("updated_at", nowIso())
             }
-            batch.update(
-                userRef,
-                mapOf(
-                    "cardShared" to true,
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                ),
+            restPostUnit(
+                table = "listening_cards",
+                payload = payload,
+                queryParams = listOf("on_conflict" to "uid"),
+                prefer = "resolution=merge-duplicates,return=minimal",
             )
-            batch.commit().await()
+            restPatchUnit(
+                table = "orbit_users",
+                queryParams = listOf("uid" to "eq.$uid"),
+                payload = buildJsonObject {
+                    put("card_shared", true)
+                    put("updated_at", nowIso())
+                },
+            )
+            notifyTopic("cards:$uid", "profile:$uid")
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.WRITE, "listeningCards/$uid")
+            handleCloudError(e, OperationType.WRITE, "listening_cards/$uid", uid)
             Result.failure(e)
         }
     }
@@ -593,42 +609,47 @@ class CloudRepository(
         try {
             val currentUid = requireUid()
             check(currentUid == uid)
-            val batch = db.batch()
-            batch.delete(db.collection("listeningCards").document(uid))
-            batch.update(
-                db.collection("users").document(uid),
-                mapOf(
-                    "cardShared" to false,
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                ),
+            restDelete("listening_cards", listOf("uid" to "eq.$uid"))
+            restPatchUnit(
+                table = "orbit_users",
+                queryParams = listOf("uid" to "eq.$uid"),
+                payload = buildJsonObject {
+                    put("card_shared", false)
+                    put("updated_at", nowIso())
+                },
             )
-            batch.commit().await()
+            notifyTopic("cards:$uid", "profile:$uid")
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.DELETE, "listeningCards/$uid")
+            handleCloudError(e, OperationType.DELETE, "listening_cards/$uid", uid)
             Result.failure(e)
         }
 
     // --- 5. COLLABORATIVE PLAYLISTS & TRACKS ---
 
     fun observeCollabPlaylists(uid: String): Flow<List<CollabPlaylist>> =
-        db.collection("collabPlaylists")
-            .whereArrayContains("memberUids", uid)
-            .snapshots()
-            .map { snap ->
-                snap.toObjects(CollabPlaylist::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
-                    .sortedByDescending { it.updatedAt ?: it.createdAt ?: Timestamp(0, 0) }
-            }
+        observeTopic("playlists:$uid") {
+            restGetList(
+                table = "collab_playlists",
+                queryParams = listOf(
+                    "member_uids" to "cs.${pgArrayLiteral(listOf(uid))}",
+                    "select" to "*",
+                    "order" to "updated_at.desc",
+                ),
+                serializer = CollabPlaylist.serializer(),
+            )
+        }
 
     fun observeCollabPlaylist(playlistId: String): Flow<CollabPlaylist?> =
-        db.collection("collabPlaylists").document(playlistId)
-            .snapshots()
-            .map { snap ->
-                if (snap.exists()) snap.toObject(CollabPlaylist::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
-                else null
-            }
+        observeTopic("playlist:$playlistId") {
+            restGetList(
+                table = "collab_playlists",
+                queryParams = listOf("id" to "eq.$playlistId", "select" to "*"),
+                serializer = CollabPlaylist.serializer(),
+            ).firstOrNull()
+        }
 
     suspend fun createCollabPlaylist(
         profile: UserProfile,
@@ -646,55 +667,32 @@ class CloudRepository(
         }
         val cleanDesc = description?.trim()?.take(240)?.takeIf { it.isNotEmpty() }
         val inviteCode = CloudValidation.generateInviteCode()
-        val playlistRef = db.collection("collabPlaylists").document()
-        val inviteRef = db.collection("playlistInvites").document(inviteCode)
         val memberTag = CloudValidation.memberTag(profile.displayName, profile.handle)
 
         return try {
-            val batch = db.batch()
-            val playlistMap = mutableMapOf<String, Any?>(
-                "title" to cleanTitle,
-                "description" to cleanDesc,
-                "ownerId" to uid,
-                "ownerName" to profile.displayName.take(40),
-                "inviteCode" to inviteCode,
-                "memberUids" to listOf(uid),
-                "memberNames" to listOf(memberTag),
-                "trackCount" to 0,
-                "trackDocIds" to emptyList<String>(),
-                "createdAt" to FieldValue.serverTimestamp(),
-                "updatedAt" to FieldValue.serverTimestamp(),
-            ).filterValues { it != null }
-            batch.set(playlistRef, playlistMap)
-            batch.set(
-                inviteRef,
-                mapOf(
-                    "playlistId" to playlistRef.id,
-                    "ownerId" to uid,
-                    "title" to cleanTitle,
-                    "createdAt" to FieldValue.serverTimestamp(),
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                ),
-            )
-            batch.commit().await()
-            Result.success(
-                CollabPlaylist(
-                    id = playlistRef.id,
-                    title = cleanTitle,
-                    description = cleanDesc,
-                    ownerId = uid,
-                    ownerName = profile.displayName.take(40),
-                    inviteCode = inviteCode,
-                    memberUids = listOf(uid),
-                    memberNames = listOf(memberTag),
-                    trackCount = 0,
-                    trackDocIds = emptyList(),
-                )
-            )
+            val payload = buildJsonObject {
+                put("title", cleanTitle)
+                cleanDesc?.let { put("description", it) }
+                put("owner_id", uid)
+                put("owner_name", profile.displayName.take(40))
+                put("invite_code", inviteCode)
+                put("member_uids", buildJsonArray { add(JsonPrimitive(uid)) })
+                put("member_names", buildJsonArray { add(JsonPrimitive(memberTag)) })
+                put("track_count", 0)
+                put("track_doc_ids", buildJsonArray {})
+                put("updated_at", nowIso())
+            }
+            val created = restPostList(
+                table = "collab_playlists",
+                payload = payload,
+                serializer = CollabPlaylist.serializer(),
+            ).firstOrNull() ?: error("Failed to create collaborative playlist.")
+            notifyTopic("playlists:$uid")
+            Result.success(created)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.CREATE, "collabPlaylists/${playlistRef.id}")
+            handleCloudError(e, OperationType.CREATE, "collab_playlists", uid)
             Result.failure(e)
         }
     }
@@ -710,43 +708,33 @@ class CloudRepository(
             return Result.failure(IllegalArgumentException("Enter a valid 6–12 character invite code."))
         }
         return try {
-            val inviteSnap = db.collection("playlistInvites").document(code).get().await()
-            if (!inviteSnap.exists()) {
-                return Result.failure(NoSuchElementException("No collaborative playlist found for code $code."))
-            }
-            val playlistId = inviteSnap.getString("playlistId")?.takeIf { it.isNotBlank() }
-                ?: return Result.failure(IllegalStateException("Invite code is incomplete."))
+            val playlist = restGetList(
+                table = "collab_playlists",
+                queryParams = listOf("invite_code" to "eq.$code", "select" to "*"),
+                serializer = CollabPlaylist.serializer(),
+            ).firstOrNull() ?: return Result.failure(NoSuchElementException("No collaborative playlist found for code $code."))
 
-            val playlistRef = db.collection("collabPlaylists").document(playlistId)
-            val alreadyMember = try {
-                val existing = playlistRef.get().await()
-                existing.exists()
-            } catch (_: FirebaseFirestoreException) {
-                false
+            val memberTag = CloudValidation.memberTag(profile.displayName, profile.handle)
+            if (uid !in playlist.memberUids) {
+                val nextUids = (playlist.memberUids + uid).distinct()
+                val nextNames = (playlist.memberNames + memberTag).distinct()
+                restPatchUnit(
+                    table = "collab_playlists",
+                    queryParams = listOf("id" to "eq.${playlist.id}"),
+                    payload = buildJsonObject {
+                        put("member_uids", buildJsonArray { nextUids.forEach { add(JsonPrimitive(it)) } })
+                        put("member_names", buildJsonArray { nextNames.forEach { add(JsonPrimitive(it)) } })
+                        put("updated_at", nowIso())
+                    },
+                )
+                syncTrackMembership(playlist.id, playlist.trackDocIds, nextUids)
             }
-
-            if (!alreadyMember) {
-                val memberTag = CloudValidation.memberTag(profile.displayName, profile.handle)
-                playlistRef.update(
-                    mapOf(
-                        "memberUids" to FieldValue.arrayUnion(uid),
-                        "memberNames" to FieldValue.arrayUnion(memberTag),
-                        "updatedAt" to FieldValue.serverTimestamp(),
-                    ),
-                ).await()
-            }
-
-            // Now a member: fetch playlist and synchronize trackDocIds so existing songs appear in query
-            val joined = playlistRef.get().await()
-                .toObject(CollabPlaylist::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
-            if (joined != null && joined.trackDocIds.isNotEmpty()) {
-                syncTrackMembership(playlistId, joined.trackDocIds, joined.memberUids)
-            }
-            Result.success(playlistId)
+            notifyTopic("playlists:$uid", "playlist:${playlist.id}", "tracks:${playlist.id}")
+            Result.success(playlist.id)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, "playlistInvites/$code")
+            handleCloudError(e, OperationType.UPDATE, "collab_playlists/invite/$code", uid)
             Result.failure(e)
         }
     }
@@ -756,25 +744,26 @@ class CloudRepository(
         trackDocIds: List<String>,
         memberUids: List<String>,
     ) {
-        val tracksCol = db.collection("collabPlaylists").document(playlistId).collection("tracks")
-        for (docId in trackDocIds.take(200)) {
-            try {
-                tracksCol.document(docId).update("memberUids", memberUids).await()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                // Best-effort sync for deleted or already-synced docs
-            }
+        if (trackDocIds.isEmpty()) return
+        runCatching {
+            restPatchUnit(
+                table = "collab_tracks",
+                queryParams = listOf("playlist_id" to "eq.$playlistId"),
+                payload = buildJsonObject {
+                    put("member_uids", buildJsonArray { memberUids.forEach { add(JsonPrimitive(it)) } })
+                },
+            )
         }
     }
 
     suspend fun leaveCollabPlaylist(profile: UserProfile, playlistId: String): Result<Unit> =
         try {
             val uid = requireUid()
-            val playlistRef = db.collection("collabPlaylists").document(playlistId)
-            val snap = playlistRef.get().await()
-            val playlist = snap.toObject(CollabPlaylist::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
-                ?: return Result.failure(NoSuchElementException("Playlist not found."))
+            val playlist = restGetList(
+                table = "collab_playlists",
+                queryParams = listOf("id" to "eq.$playlistId", "select" to "*"),
+                serializer = CollabPlaylist.serializer(),
+            ).firstOrNull() ?: return Result.failure(NoSuchElementException("Playlist not found."))
             if (playlist.ownerId == uid) {
                 return Result.failure(IllegalStateException("Owners cannot leave their own playlist. Delete it instead."))
             }
@@ -783,46 +772,49 @@ class CloudRepository(
             val nextNames = playlist.memberNames
                 .filterNot { it == myTag || it.endsWith("(@${profile.handle})") }
                 .ifEmpty { playlist.memberNames.take(1) }
-            playlistRef.update(
-                mapOf(
-                    "memberUids" to nextUids,
-                    "memberNames" to nextNames,
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                ),
-            ).await()
+            restPatchUnit(
+                table = "collab_playlists",
+                queryParams = listOf("id" to "eq.$playlistId"),
+                payload = buildJsonObject {
+                    put("member_uids", buildJsonArray { nextUids.forEach { add(JsonPrimitive(it)) } })
+                    put("member_names", buildJsonArray { nextNames.forEach { add(JsonPrimitive(it)) } })
+                    put("updated_at", nowIso())
+                },
+            )
+            notifyTopic("playlists:$uid", "playlist:$playlistId")
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, "collabPlaylists/$playlistId")
+            handleCloudError(e, OperationType.UPDATE, "collab_playlists/$playlistId")
             Result.failure(e)
         }
 
-    suspend fun renameCollabPlaylist(playlist: CollabPlaylist, newTitle: String, description: String? = playlist.description): Result<Unit> {
+    suspend fun renameCollabPlaylist(
+        playlist: CollabPlaylist,
+        newTitle: String,
+        description: String? = playlist.description,
+    ): Result<Unit> {
         val cleanTitle = newTitle.trim().take(80)
         if (cleanTitle.isEmpty()) return Result.failure(IllegalArgumentException("Title cannot be empty."))
         return try {
-            requireUid()
-            val batch = db.batch()
-            val updateMap = mutableMapOf<String, Any>(
-                "title" to cleanTitle,
-                "updatedAt" to FieldValue.serverTimestamp(),
+            val uid = requireUid()
+            val payload = buildJsonObject {
+                put("title", cleanTitle)
+                description?.trim()?.take(240)?.takeIf { it.isNotEmpty() }?.let { put("description", it) }
+                put("updated_at", nowIso())
+            }
+            restPatchUnit(
+                table = "collab_playlists",
+                queryParams = listOf("id" to "eq.${playlist.id}"),
+                payload = payload,
             )
-            description?.trim()?.take(240)?.takeIf { it.isNotEmpty() }?.let { updateMap["description"] = it }
-            batch.update(db.collection("collabPlaylists").document(playlist.id), updateMap)
-            batch.update(
-                db.collection("playlistInvites").document(playlist.inviteCode),
-                mapOf(
-                    "title" to cleanTitle,
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                ),
-            )
-            batch.commit().await()
+            notifyTopic("playlists:$uid", "playlist:${playlist.id}")
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, "collabPlaylists/${playlist.id}")
+            handleCloudError(e, OperationType.UPDATE, "collab_playlists/${playlist.id}")
             Result.failure(e)
         }
     }
@@ -831,32 +823,28 @@ class CloudRepository(
         try {
             val uid = requireUid()
             check(playlist.ownerId == uid) { "Only the playlist creator can delete it." }
-            val tracksSnap = db.collection("collabPlaylists").document(playlist.id)
-                .collection("tracks")
-                .whereArrayContains("memberUids", uid)
-                .get()
-                .await()
-            val batch = db.batch()
-            tracksSnap.documents.forEach { batch.delete(it.reference) }
-            batch.delete(db.collection("playlistInvites").document(playlist.inviteCode))
-            batch.delete(db.collection("collabPlaylists").document(playlist.id))
-            batch.commit().await()
+            restDelete("collab_playlists", listOf("id" to "eq.${playlist.id}"))
+            notifyTopic("playlists:$uid", "playlist:${playlist.id}")
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.DELETE, "collabPlaylists/${playlist.id}")
+            handleCloudError(e, OperationType.DELETE, "collab_playlists/${playlist.id}")
             Result.failure(e)
         }
 
     fun observeCollabTracks(playlistId: String, uid: String): Flow<List<CollabTrack>> =
-        db.collection("collabPlaylists").document(playlistId).collection("tracks")
-            .whereArrayContains("memberUids", uid)
-            .snapshots()
-            .map { snap ->
-                snap.toObjects(CollabTrack::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
-                    .sortedBy { it.createdAt ?: Timestamp(0, 0) }
-            }
+        observeTopic("tracks:$playlistId") {
+            restGetList(
+                table = "collab_tracks",
+                queryParams = listOf(
+                    "playlist_id" to "eq.$playlistId",
+                    "select" to "*",
+                    "order" to "created_at.asc",
+                ),
+                serializer = CollabTrack.serializer(),
+            )
+        }
 
     suspend fun addTrackToCollabPlaylist(
         profile: UserProfile,
@@ -869,49 +857,54 @@ class CloudRepository(
             return Result.failure(e)
         }
         return try {
-            val playlistRef = db.collection("collabPlaylists").document(playlistId)
-            val latestSnap = playlistRef.get().await()
-            val latest = latestSnap.toObject(CollabPlaylist::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
-                ?: return Result.failure(NoSuchElementException("Collaborative playlist no longer exists."))
+            val latest = restGetList(
+                table = "collab_playlists",
+                queryParams = listOf("id" to "eq.$playlistId", "select" to "*"),
+                serializer = CollabPlaylist.serializer(),
+            ).firstOrNull() ?: return Result.failure(NoSuchElementException("Collaborative playlist no longer exists."))
+
             if (latest.trackDocIds.size >= 200) {
                 return Result.failure(IllegalStateException("Collaborative playlists hold up to 200 songs."))
             }
 
-            val trackRef = playlistRef.collection("tracks").document()
             val artworkUrl = track.artwork.url(600)?.take(500)?.takeIf { it.isNotBlank() }
-            val trackMap = mutableMapOf<String, Any?>(
-                "playlistId" to playlistId,
-                "memberUids" to latest.memberUids,
-                "mediaId" to track.id.value.take(200),
-                "title" to track.title.trim().take(160).ifEmpty { "Untitled track" },
-                "artistLine" to track.artistLine.trim().take(160),
-                "albumTitle" to track.album?.title?.trim()?.take(160)?.takeIf { it.isNotEmpty() },
-                "artworkUrl" to artworkUrl,
-                "durationMs" to track.durationMs?.takeIf { it >= 0L },
-                "addedByUid" to uid,
-                "addedByName" to profile.displayName.trim().take(40).ifBlank { "Listener" },
-                "createdAt" to FieldValue.serverTimestamp(),
-            ).filterValues { it != null }
-
-            val nextTrackIds = (latest.trackDocIds + trackRef.id).distinct().take(200)
-            val summaryUpdate = mutableMapOf<String, Any>(
-                "trackCount" to nextTrackIds.size,
-                "trackDocIds" to nextTrackIds,
-                "updatedAt" to FieldValue.serverTimestamp(),
-            )
-            if (latest.coverUrl == null && artworkUrl != null) {
-                summaryUpdate["coverUrl"] = artworkUrl
+            val trackPayload = buildJsonObject {
+                put("playlist_id", playlistId)
+                put("member_uids", buildJsonArray { latest.memberUids.forEach { add(JsonPrimitive(it)) } })
+                put("media_id", track.id.value.take(200))
+                put("title", track.title.trim().take(160).ifEmpty { "Untitled track" })
+                put("artist_line", track.artistLine.trim().take(160))
+                track.album?.title?.trim()?.take(160)?.takeIf { it.isNotEmpty() }?.let { put("album_title", it) }
+                artworkUrl?.let { put("artwork_url", it) }
+                track.durationMs?.takeIf { it >= 0L }?.let { put("duration_ms", it) }
+                put("added_by_uid", uid)
+                put("added_by_name", profile.displayName.trim().take(40).ifBlank { "Listener" })
             }
 
-            val batch = db.batch()
-            batch.set(trackRef, trackMap)
-            batch.update(playlistRef, summaryUpdate)
-            batch.commit().await()
+            val inserted = restPostList(
+                table = "collab_tracks",
+                payload = trackPayload,
+                serializer = CollabTrack.serializer(),
+            ).firstOrNull() ?: error("Failed to insert track.")
+
+            val nextTrackIds = (latest.trackDocIds + inserted.id).distinct().take(200)
+            val summaryUpdate = buildJsonObject {
+                put("track_count", nextTrackIds.size)
+                put("track_doc_ids", buildJsonArray { nextTrackIds.forEach { add(JsonPrimitive(it)) } })
+                if (latest.coverUrl == null && artworkUrl != null) put("cover_url", artworkUrl)
+                put("updated_at", nowIso())
+            }
+            restPatchUnit(
+                table = "collab_playlists",
+                queryParams = listOf("id" to "eq.$playlistId"),
+                payload = summaryUpdate,
+            )
+            notifyTopic("tracks:$playlistId", "playlist:$playlistId", "playlists:$uid")
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.WRITE, "collabPlaylists/$playlistId/tracks")
+            handleCloudError(e, OperationType.WRITE, "collab_tracks/$playlistId", uid)
             Result.failure(e)
         }
     }
@@ -921,26 +914,29 @@ class CloudRepository(
         trackDocId: String,
     ): Result<Unit> =
         try {
-            requireUid()
-            val playlistRef = db.collection("collabPlaylists").document(playlist.id)
-            val trackRef = playlistRef.collection("tracks").document(trackDocId)
+            val uid = requireUid()
+            restDelete("collab_tracks", listOf("id" to "eq.$trackDocId"))
             val nextIds = playlist.trackDocIds.filter { it != trackDocId }
-            val batch = db.batch()
-            batch.delete(trackRef)
-            batch.update(
-                playlistRef,
-                mapOf(
-                    "trackCount" to nextIds.size,
-                    "trackDocIds" to nextIds,
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                ),
+            restPatchUnit(
+                table = "collab_playlists",
+                queryParams = listOf("id" to "eq.${playlist.id}"),
+                payload = buildJsonObject {
+                    put("track_count", nextIds.size)
+                    put("track_doc_ids", buildJsonArray { nextIds.forEach { add(JsonPrimitive(it)) } })
+                    put("updated_at", nowIso())
+                },
             )
-            batch.commit().await()
+            notifyTopic("tracks:${playlist.id}", "playlist:${playlist.id}", "playlists:$uid")
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.DELETE, "collabPlaylists/${playlist.id}/tracks/$trackDocId")
+            handleCloudError(e, OperationType.DELETE, "collab_tracks/$trackDocId")
             Result.failure(e)
         }
+
+    private companion object {
+        const val POLL_INTERVAL_MS = 5_000L
+        val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
+    }
 }

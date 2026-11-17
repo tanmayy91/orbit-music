@@ -1,83 +1,53 @@
 package app.orbitmusic.cloud
 
-import androidx.annotation.Keep
 import app.orbitmusic.core.model.AlbumRef
 import app.orbitmusic.core.model.ArtistRef
 import app.orbitmusic.core.model.Artwork
 import app.orbitmusic.core.model.MediaId
 import app.orbitmusic.core.model.Track
-import com.google.firebase.Timestamp
-import com.google.firebase.firestore.DocumentId
-import com.google.firebase.firestore.IgnoreExtraProperties
-import com.google.firebase.firestore.ServerTimestamp
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import java.security.SecureRandom
 import java.util.Locale
 
-@Keep
-@IgnoreExtraProperties
+@Serializable
 data class UserProfile(
-    @DocumentId val id: String = "",
     val uid: String = "",
-    val displayName: String = "",
+    @SerialName("display_name") val displayName: String = "",
     val handle: String = "",
-    val discordUsername: String? = null,
-    val discordId: String? = null,
-    val arySyncEnabled: Boolean = true,
-    val cardShared: Boolean = false,
-    @ServerTimestamp val createdAt: Timestamp? = null,
-    @ServerTimestamp val updatedAt: Timestamp? = null,
-)
+    @SerialName("discord_username") val discordUsername: String? = null,
+    @SerialName("discord_avatar_url") val discordAvatarUrl: String? = null,
+    @SerialName("card_shared") val cardShared: Boolean = false,
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("updated_at") val updatedAt: String? = null,
+) {
+    val id: String get() = uid
+    val discordId: String? get() = uid.takeIf { it.isNotBlank() }
+}
 
-@Keep
-@IgnoreExtraProperties
+@Serializable
 data class DirectoryEntry(
-    @DocumentId val id: String = "",
     val uid: String = "",
     val handle: String = "",
-    val displayName: String = "",
-    val discordUsername: String? = null,
-    @ServerTimestamp val createdAt: Timestamp? = null,
-    @ServerTimestamp val updatedAt: Timestamp? = null,
-)
+    @SerialName("display_name") val displayName: String = "",
+    @SerialName("discord_username") val discordUsername: String? = null,
+) {
+    val id: String get() = handle
+}
 
-@Keep
-@IgnoreExtraProperties
-data class DiscordLookupEntry(
-    @DocumentId val id: String = "",
-    val uid: String = "",
-    val discordUsername: String = "",
-    val handle: String = "",
-    val displayName: String = "",
-    @ServerTimestamp val createdAt: Timestamp? = null,
-    @ServerTimestamp val updatedAt: Timestamp? = null,
-)
-
-@Keep
-@IgnoreExtraProperties
-data class ArySyncMessage(
-    @DocumentId val id: String = "",
-    val role: String = "user",
-    val text: String = "",
-    val changeSummaries: List<String> = emptyList(),
-    val focusedPlaylistTitle: String? = null,
-    val seq: Int = 0,
-    @ServerTimestamp val createdAt: Timestamp? = null,
-)
-
-@Keep
-@IgnoreExtraProperties
+@Serializable
 data class Friendship(
-    @DocumentId val id: String = "",
-    val memberUids: List<String> = emptyList(),
-    val requesterUid: String = "",
-    val recipientUid: String = "",
-    val requesterName: String = "",
-    val requesterHandle: String = "",
-    val recipientName: String = "",
-    val recipientHandle: String = "",
+    val id: String = "",
+    @SerialName("member_uids") val memberUids: List<String> = emptyList(),
+    @SerialName("requester_uid") val requesterUid: String = "",
+    @SerialName("recipient_uid") val recipientUid: String = "",
+    @SerialName("requester_name") val requesterName: String = "",
+    @SerialName("requester_handle") val requesterHandle: String = "",
+    @SerialName("recipient_name") val recipientName: String = "",
+    @SerialName("recipient_handle") val recipientHandle: String = "",
     val status: String = "pending",
-    @ServerTimestamp val createdAt: Timestamp? = null,
-    @ServerTimestamp val updatedAt: Timestamp? = null,
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("updated_at") val updatedAt: String? = null,
 ) {
     val accepted: Boolean get() = status == "accepted"
     fun otherUid(myUid: String): String = if (requesterUid == myUid) recipientUid else requesterUid
@@ -85,73 +55,60 @@ data class Friendship(
     fun otherHandle(myUid: String): String = if (requesterUid == myUid) recipientHandle else requesterHandle
 }
 
-@Keep
-@IgnoreExtraProperties
+@Serializable
 data class ListeningCardSnapshot(
-    @DocumentId val id: String = "",
     val uid: String = "",
-    val ownerName: String = "",
+    @SerialName("owner_name") val ownerName: String = "",
     val handle: String = "",
-    val discordUsername: String? = null,
+    @SerialName("discord_username") val discordUsername: String? = null,
     val persona: String = "The listener",
-    val sinceLabel: String? = null,
-    val hoursLabel: String = "0 min",
+    @SerialName("since_label") val sinceLabel: String? = null,
+    @SerialName("hours_label") val hoursLabel: String = "0 min",
     val plays: Int = 0,
-    val artistCount: Int = 0,
-    val bestStreak: Int = 0,
-    val topSongTitle: String? = null,
-    val topSongArtist: String? = null,
-    val topGenre: String? = null,
-    val topArtists: List<String> = emptyList(),
-    val viewerUids: List<String> = emptyList(),
-    @ServerTimestamp val createdAt: Timestamp? = null,
-    @ServerTimestamp val updatedAt: Timestamp? = null,
-)
+    @SerialName("artist_count") val artistCount: Int = 0,
+    @SerialName("best_streak") val bestStreak: Int = 0,
+    @SerialName("top_song_title") val topSongTitle: String? = null,
+    @SerialName("top_song_artist") val topSongArtist: String? = null,
+    @SerialName("top_genre") val topGenre: String? = null,
+    @SerialName("top_artists") val topArtists: List<String> = emptyList(),
+    @SerialName("viewer_uids") val viewerUids: List<String> = emptyList(),
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("updated_at") val updatedAt: String? = null,
+) {
+    val id: String get() = uid
+}
 
-@Keep
-@IgnoreExtraProperties
-data class PlaylistInvite(
-    @DocumentId val id: String = "",
-    val playlistId: String = "",
-    val ownerId: String = "",
-    val title: String = "",
-    @ServerTimestamp val createdAt: Timestamp? = null,
-    @ServerTimestamp val updatedAt: Timestamp? = null,
-)
-
-@Keep
-@IgnoreExtraProperties
+@Serializable
 data class CollabPlaylist(
-    @DocumentId val id: String = "",
+    val id: String = "",
     val title: String = "",
     val description: String? = null,
-    val ownerId: String = "",
-    val ownerName: String = "",
-    val inviteCode: String = "",
-    val memberUids: List<String> = emptyList(),
-    val memberNames: List<String> = emptyList(),
-    val trackCount: Int = 0,
-    val trackDocIds: List<String> = emptyList(),
-    val coverUrl: String? = null,
-    @ServerTimestamp val createdAt: Timestamp? = null,
-    @ServerTimestamp val updatedAt: Timestamp? = null,
+    @SerialName("owner_id") val ownerId: String = "",
+    @SerialName("owner_name") val ownerName: String = "",
+    @SerialName("invite_code") val inviteCode: String = "",
+    @SerialName("member_uids") val memberUids: List<String> = emptyList(),
+    @SerialName("member_names") val memberNames: List<String> = emptyList(),
+    @SerialName("track_count") val trackCount: Int = 0,
+    @SerialName("track_doc_ids") val trackDocIds: List<String> = emptyList(),
+    @SerialName("cover_url") val coverUrl: String? = null,
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("updated_at") val updatedAt: String? = null,
 )
 
-@Keep
-@IgnoreExtraProperties
+@Serializable
 data class CollabTrack(
-    @DocumentId val id: String = "",
-    val playlistId: String = "",
-    val memberUids: List<String> = emptyList(),
-    val mediaId: String = "",
+    val id: String = "",
+    @SerialName("playlist_id") val playlistId: String = "",
+    @SerialName("member_uids") val memberUids: List<String> = emptyList(),
+    @SerialName("media_id") val mediaId: String = "",
     val title: String = "",
-    val artistLine: String = "",
-    val albumTitle: String? = null,
-    val artworkUrl: String? = null,
-    val durationMs: Long? = null,
-    val addedByUid: String = "",
-    val addedByName: String = "",
-    @ServerTimestamp val createdAt: Timestamp? = null,
+    @SerialName("artist_line") val artistLine: String = "",
+    @SerialName("album_title") val albumTitle: String? = null,
+    @SerialName("artwork_url") val artworkUrl: String? = null,
+    @SerialName("duration_ms") val durationMs: Long? = null,
+    @SerialName("added_by_uid") val addedByUid: String = "",
+    @SerialName("added_by_name") val addedByName: String = "",
+    @SerialName("created_at") val createdAt: String? = null,
 ) {
     fun toTrack(): Track {
         val artists = artistLine
