@@ -64,39 +64,82 @@ jobs:
           SECRET_KEYSTORE_PASSWORD: ${{ secrets.ORBIT_MUSIC_KEYSTORE_PASSWORD }}
           SECRET_KEY_ALIAS: ${{ secrets.ORBIT_MUSIC_KEY_ALIAS }}
           SECRET_KEY_PASSWORD: ${{ secrets.ORBIT_MUSIC_KEY_PASSWORD }}
+          AUTO_SECRET_TOKEN: ${{ secrets.GH_PAT || secrets.REPO_PAT || secrets.PAT_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
-          # Never generate a random ephemeral keystore for a release build: doing so changes the
-          # signing certificate on every release and breaks Android in-app updates (OTHER_APP).
-          if [ -z "$ORBIT_MUSIC_KEYSTORE_BASE64" ] || [ -z "$SECRET_KEYSTORE_PASSWORD" ]; then
-            echo "::error::Release signing secrets are missing. Configure ORBIT_MUSIC_KEYSTORE_BASE64 and ORBIT_MUSIC_KEYSTORE_PASSWORD (plus optional ORBIT_MUSIC_KEY_ALIAS and ORBIT_MUSIC_KEY_PASSWORD) in repository Secrets." >&2
-            exit 1
-          fi
-
-          printf '%s' "$ORBIT_MUSIC_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 -d > release.keystore
-          if [ ! -s release.keystore ]; then
-            echo "::error::Decoded release.keystore is empty. Check ORBIT_MUSIC_KEYSTORE_BASE64." >&2
-            exit 1
-          fi
-
-          KEY_PASS="${SECRET_KEY_PASSWORD:-$SECRET_KEYSTORE_PASSWORD}"
-          ALIAS="${SECRET_KEY_ALIAS:-}"
-
-          # Verify the keystore opens and resolve the signing key alias automatically if omitted.
-          if [ -z "$ALIAS" ]; then
-            if keytool -list -keystore release.keystore -storepass "$SECRET_KEYSTORE_PASSWORD" -alias orbitmusic >/dev/null 2>&1; then
-              ALIAS="orbitmusic"
-            else
-              ALIAS="$(keytool -list -keystore release.keystore -storepass "$SECRET_KEYSTORE_PASSWORD" \
-                | awk -F',' '/PrivateKeyEntry|KeyEntry/ { print $1; exit }' | xargs)"
+          if [ -n "$ORBIT_MUSIC_KEYSTORE_BASE64" ]; then
+            if [ -z "$SECRET_KEYSTORE_PASSWORD" ]; then
+              echo "::error::ORBIT_MUSIC_KEYSTORE_PASSWORD secret is missing." >&2
+              exit 1
             fi
-          fi
 
-          if [ -z "$ALIAS" ]; then
-            echo "::error::Could not determine key alias in release.keystore. Set ORBIT_MUSIC_KEY_ALIAS." >&2
+            printf '%s' "$ORBIT_MUSIC_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 -d > release.keystore
+            if [ ! -s release.keystore ]; then
+              echo "::error::Decoded release.keystore is empty. Check ORBIT_MUSIC_KEYSTORE_BASE64." >&2
+              exit 1
+            fi
+
+            KEY_PASS="${SECRET_KEY_PASSWORD:-$SECRET_KEYSTORE_PASSWORD}"
+            ALIAS="${SECRET_KEY_ALIAS:-}"
+
+            if [ -z "$ALIAS" ]; then
+              if keytool -list -keystore release.keystore -storepass "$SECRET_KEYSTORE_PASSWORD" -alias orbitmusic >/dev/null 2>&1; then
+                ALIAS="orbitmusic"
+              else
+                ALIAS="$(keytool -list -keystore release.keystore -storepass "$SECRET_KEYSTORE_PASSWORD" \
+                  | awk -F',' '/PrivateKeyEntry|KeyEntry/ { print $1; exit }' | xargs)"
+              fi
+            fi
+
+            if [ -z "$ALIAS" ]; then
+              echo "::error::Could not determine key alias in release.keystore. Set ORBIT_MUSIC_KEY_ALIAS." >&2
+              exit 1
+            fi
+
+            keytool -list -v -keystore release.keystore -storepass "$SECRET_KEYSTORE_PASSWORD" -alias "$ALIAS" >/dev/null
+            STORE_PASS="$SECRET_KEYSTORE_PASSWORD"
+          elif [ -n "$AUTO_SECRET_TOKEN" ]; then
+            echo "First run detected: generating persistent release keystore and saving it to GitHub Secrets..."
+            STORE_PASS="$(openssl rand -base64 32 | tr -dc 'A-Za-z0-9' | head -c 28)"
+            KEY_PASS="$STORE_PASS"
+            ALIAS="orbitmusic"
+
+            keytool -genkeypair -v \
+              -keystore release.keystore \
+              -storetype PKCS12 \
+              -storepass "$STORE_PASS" \
+              -alias "$ALIAS" \
+              -keypass "$KEY_PASS" \
+              -keyalg RSA \
+              -keysize 4096 \
+              -validity 10000 \
+              -dname "CN=Orbit Music,O=Orbit Music"
+
+            KEYSTORE_B64="$(base64 -w 0 release.keystore)"
+
+            export GH_TOKEN="$AUTO_SECRET_TOKEN"
+            printf '%s' "$KEYSTORE_B64" | gh secret set ORBIT_MUSIC_KEYSTORE_BASE64 --repo "$GITHUB_REPOSITORY"
+            printf '%s' "$STORE_PASS" | gh secret set ORBIT_MUSIC_KEYSTORE_PASSWORD --repo "$GITHUB_REPOSITORY"
+            printf '%s' "$ALIAS" | gh secret set ORBIT_MUSIC_KEY_ALIAS --repo "$GITHUB_REPOSITORY"
+            printf '%s' "$KEY_PASS" | gh secret set ORBIT_MUSIC_KEY_PASSWORD --repo "$GITHUB_REPOSITORY"
+            echo "Saved generated keystore to repository Secrets. Future releases will reuse this exact signing key."
+          else
+            cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ### Release Keystore Required
+          No release keystore was found in repository Secrets (`ORBIT_MUSIC_KEYSTORE_BASE64`).
+          GitHub's default `GITHUB_TOKEN` cannot write repository Secrets, so a generated keystore cannot persist across tag releases without a token or secret.
+
+          **Option A — Auto-generate on first run (recommended):**
+          1. Create a Fine-Grained Personal Access Token with **Secrets: Read and write** on this repository.
+          2. Add it as repository secret **`GH_PAT`**.
+          3. Re-run this workflow — it will generate `release.keystore` once, save it to repository Secrets automatically, and reuse it on every release forever.
+
+          **Option B — Upload your existing keystore:**
+          Add `ORBIT_MUSIC_KEYSTORE_BASE64`, `ORBIT_MUSIC_KEYSTORE_PASSWORD`, `ORBIT_MUSIC_KEY_ALIAS`, and `ORBIT_MUSIC_KEY_PASSWORD` in **Settings → Secrets and variables → Actions**.
+          EOF
+            echo "::error::Missing ORBIT_MUSIC_KEYSTORE_BASE64 (or GH_PAT to auto-generate and save the keystore on first run). Refusing to sign a release with an ephemeral key." >&2
             exit 1
           fi
-
-          keytool -list -v -keystore release.keystore -storepass "$SECRET_KEYSTORE_PASSWORD" -alias "$ALIAS" >/dev/null
 
           # Also ensure debug.keystore exists for unit test tasks if needed.
           if [ -f debug.keystore.base64 ]; then
@@ -108,7 +151,7 @@ jobs:
           fi
 
           echo "ORBIT_MUSIC_KEYSTORE_FILE=${{ github.workspace }}/release.keystore" >> "$GITHUB_ENV"
-          echo "ORBIT_MUSIC_KEYSTORE_PASSWORD=${SECRET_KEYSTORE_PASSWORD}" >> "$GITHUB_ENV"
+          echo "ORBIT_MUSIC_KEYSTORE_PASSWORD=${STORE_PASS}" >> "$GITHUB_ENV"
           echo "ORBIT_MUSIC_KEY_ALIAS=${ALIAS}" >> "$GITHUB_ENV"
           echo "ORBIT_MUSIC_KEY_PASSWORD=${KEY_PASS}" >> "$GITHUB_ENV"
 
