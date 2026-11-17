@@ -42,6 +42,12 @@
             android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
             android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".ui.account.DiscordSignInActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:windowSoftInputMode="adjustResize" />
         <!-- The picture of a Profile card, handed to whichever app it's shared with. -->
         <provider
             android:name="androidx.core.content.FileProvider"

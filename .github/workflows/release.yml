@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v1.0.0). Leave empty to use versionName from app/build.gradle.kts."
+        description: "Release tag (e.g. v1.1.0). Leave empty to use version from v.json."
         required: false
         default: ""
       prerelease:
@@ -36,9 +36,9 @@ jobs:
           elif [ -n "${{ inputs.tag }}" ]; then
             TAG="${{ inputs.tag }}"
           else
-            VERSION="$(grep -E 'versionName\s*=' app/build.gradle.kts | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')"
+            VERSION="$(python3 -c 'import json; print(json.load(open("v.json"))["version"].strip().lstrip("vV"))')"
             if [ -z "$VERSION" ]; then
-              echo "Could not determine versionName from app/build.gradle.kts" >&2
+              echo "Could not determine version from v.json" >&2
               exit 1
             fi
             TAG="v${VERSION}"

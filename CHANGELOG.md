@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-17
+
+### Added
+- Kizzy-style Discord Rich Presence integration under **Settings > Account & Services > Discord**, supporting Gateway v10 live status, track artwork external-asset proxying (`mp:`), custom templates, buttons, live preview, and Discord sign-in / token authentication.
+- Centralized app versioning in `v.json` at the repository root (`app/build.gradle.kts` and release workflow read from `v.json`).
+
 ## [1.0.0] - 2026-11-17
 
 ### Changed

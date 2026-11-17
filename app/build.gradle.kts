@@ -19,6 +19,26 @@ val releaseStore = secret("storeFile", "ORBIT_MUSIC_KEYSTORE_FILE")
 // then needs no uninstall, which would wipe the listener's data.
 val sideBySide = providers.gradleProperty("orbitmusic.applicationIdSuffix").orNull
 
+@Suppress("UNCHECKED_CAST")
+val versionManifest = groovy.json.JsonSlurper().parseText(
+    providers.fileContents(rootProject.layout.projectDirectory.file("v.json")).asText.get(),
+) as Map<String, Any?>
+val appVersionName = (versionManifest["version"] as? String)?.trim()?.removePrefix("v")?.removePrefix("V")
+    ?.takeIf { it.isNotEmpty() }
+    ?: error("Missing \"version\" in v.json")
+val explicitVersionCode = (versionManifest["versionCode"] as? Number)?.toInt()
+val computedVersionCode = appVersionName
+    .substringBefore('-')
+    .substringBefore('+')
+    .split('.')
+    .let { parts ->
+        val major = parts.getOrNull(0)?.toIntOrNull() ?: error("Invalid version in v.json: $appVersionName")
+        val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
+        val patch = parts.getOrNull(2)?.toIntOrNull() ?: 0
+        major * 1_000_000 + minor * 1_000 + patch
+    }
+val appVersionCode = explicitVersionCode ?: computedVersionCode
+
 android {
     namespace = "app.orbitmusic"
     compileSdk = 37
@@ -26,9 +46,9 @@ android {
         applicationId = "app.orbitmusic"
         minSdk = 29
         targetSdk = 36
-        // major * 1,000,000 + minor * 1,000 + patch, so it only ever rises.
-        versionCode = 1_000_000
-        versionName = "1.0.0"
+        // major * 1,000,000 + minor * 1,000 + patch, read from v.json so it only ever rises.
+        versionCode = appVersionCode
+        versionName = appVersionName
     }
     signingConfigs {
         create("debugConfig") {

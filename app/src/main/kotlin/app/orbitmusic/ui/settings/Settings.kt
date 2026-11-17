@@ -106,6 +106,9 @@ fun SettingsScreen() {
     val actions = LocalActions.current
     LaunchedEffect(Unit) { if (container.local.hasPermission() && phoneFolders == null) container.local.refresh() }
     val session by container.account.cookies.collectAsStateWithLifecycle()
+    val discordConfig by container.discordStore.config.collectAsStateWithLifecycle()
+    val discordUser by container.discordStore.user.collectAsStateWithLifecycle()
+    val discordConnection by container.discordRpc.connectionState.collectAsStateWithLifecycle()
     val sources by container.sources.added.collectAsStateWithLifecycle()
     val addresses by container.settings.addons.collectAsStateWithLifecycle()
     var adding by remember { mutableStateOf(false) }
@@ -133,7 +136,7 @@ fun SettingsScreen() {
             }
         }
         item {
-            Section("I", "Account") {
+            Section("I", "Account & Services") {
                 Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
                     Words(
                         "YouTube Music",
@@ -150,6 +153,29 @@ fun SettingsScreen() {
                     } else {
                         GlassPill("Sign in", small = true, lit = true, onClick = { context.startActivity(SignInActivity.intent(context)) })
                     }
+                }
+                Rule()
+                val discordSummary = when (val conn = discordConnection) {
+                    is app.orbitmusic.discord.DiscordConnectionState.Connected -> "${discordUser?.handle ?: "Connected"} · ${conn.summary}"
+                    is app.orbitmusic.discord.DiscordConnectionState.Idle -> "${discordUser?.handle ?: "Signed in"} · Rich Presence ready"
+                    is app.orbitmusic.discord.DiscordConnectionState.Error -> conn.message
+                    app.orbitmusic.discord.DiscordConnectionState.Connecting -> "Connecting to Discord Gateway…"
+                    app.orbitmusic.discord.DiscordConnectionState.SignedOut -> "Sign in with Discord or paste a token to enable Kizzy Rich Presence."
+                    app.orbitmusic.discord.DiscordConnectionState.Disabled ->
+                        if (discordUser != null) "${discordUser?.handle} · Disabled"
+                        else "Show what you are playing on Discord with Kizzy Rich Presence."
+                }
+                Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Words("Discord", discordSummary, Modifier.weight(1f))
+                    Spacer(Modifier.width(18.dp))
+                    GlassPill(
+                        text = if (discordConfig.enabled) "Configure" else "Set up",
+                        small = true,
+                        lit = discordConfig.enabled,
+                        trailingIcon = Glyph.Forward,
+                        modifier = Modifier.testTag("settings_discord_button"),
+                        onClick = { actions.nav.open(Route.Discord) },
+                    )
                 }
                 Rule()
             }

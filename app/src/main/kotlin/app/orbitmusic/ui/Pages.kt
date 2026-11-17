@@ -313,6 +313,7 @@ private fun Screen(route: Route) {
         Route.Charts -> ChartsScreen()
         Route.Moods -> MoodsScreen()
         Route.Settings -> SettingsScreen()
+        Route.Discord -> app.orbitmusic.ui.settings.DiscordSettingsScreen()
         Route.Equaliser -> app.orbitmusic.ui.settings.EqualiserScreen()
         is Route.OnThisPhone -> app.orbitmusic.ui.library.OnThisPhoneScreen(route.path)
         Route.Kept -> app.orbitmusic.ui.library.KeptScreen()

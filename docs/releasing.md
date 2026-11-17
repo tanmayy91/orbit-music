@@ -15,12 +15,12 @@ it: an APK signed with a different key can't install over an existing Orbit Musi
 
 ## Steps
 
-1. Raise `versionName`, and `versionCode` as `major * 1,000,000 + minor * 1,000 + patch`.
-2. Add the release to `CHANGELOG.md`, and write its notes in `docs/releases/v<versionName>.md`.
+1. Set `"version"` in `v.json` at the repo root (Gradle automatically computes `versionName` and `versionCode` as `major * 1,000,000 + minor * 1,000 + patch`, and the release workflow reads the tag from `v.json`).
+2. Add the release to `CHANGELOG.md`, and write its notes in `docs/releases/v<version>.md`.
 3. `./gradlew :app:assembleRelease`, then check it: `apksigner verify --print-certs` names `CN=Orbit Music`.
    Release builds aren't shrunk, so they run the same code as the debug build tested on the phone. To
    try one beside the phone's own without an uninstall, add `-Porbitmusic.applicationIdSuffix=.rc`.
-4. Publish a GitHub Release tagged `v<versionName>`, with the APK attached and the notes from step 2
+4. Publish a GitHub Release tagged `v<version>`, with the APK attached and the notes from step 2
    followed by the APK's size and SHA-256. The README's download link names the file, so update it if
    the file's name changes. Never commit APKs.
 

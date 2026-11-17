@@ -69,6 +69,8 @@ import app.orbitmusic.sources.apple.AppleArt
 import app.orbitmusic.sources.apple.ArtHttp
 import kotlinx.coroutines.launch
 import app.orbitmusic.update.UpdateCenter
+import app.orbitmusic.core.data.DiscordAccountStore
+import app.orbitmusic.discord.DiscordRpcClient
 
 /** Everything the app is made of, built once. Screens reach it through `LocalContainer`. */
 class Container(app: Application) {
@@ -85,6 +87,9 @@ class Container(app: Application) {
 
     /** The listener's YouTube Music session, if they've signed in (sealed with the Keystore). */
     val account = Account(app)
+
+    /** Kizzy-protocol Discord Rich Presence settings and Keystore-sealed token. */
+    val discordStore = DiscordAccountStore(app)
 
     private val language = { Locale.getDefault().language.ifBlank { "en" } }
     private val region = { Locale.getDefault().country.takeIf { it.length == 2 } ?: "US" }
@@ -104,6 +109,7 @@ class Container(app: Application) {
     val online = Online(app)
     val accountPlaylists by lazy { AccountPlaylists(app, scope, account, sources, library, online) }
     val playback = PlaybackConnection(app, scope)
+    val discordRpc = DiscordRpcClient(discordStore, http, scope)
 
     /**
      * Songs kept on the phone to play offline, each a file in the listener's Music folder with its
@@ -250,6 +256,7 @@ class OrbitMusicApp : Application(), PlaybackEnvironment, SingletonImageLoader.F
         container = Container(this)
         keepCoversOffline()
         container.accountPlaylists.start()
+        container.discordRpc.attach(container.playback, container.online.now)
     }
 
     /**
