@@ -1,17 +1,18 @@
 package app.orbitmusic.ui.settings
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -31,13 +32,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.orbitmusic.core.data.DiscordActivityType
 import app.orbitmusic.core.data.DiscordConfig
@@ -46,15 +42,14 @@ import app.orbitmusic.core.data.DiscordStatusDisplay
 import app.orbitmusic.core.data.DiscordUser
 import app.orbitmusic.core.designsystem.component.GlassPanel
 import app.orbitmusic.core.designsystem.component.GlassPill
-import app.orbitmusic.core.designsystem.component.GlassSegments
 import app.orbitmusic.core.designsystem.component.Glyph
 import app.orbitmusic.core.designsystem.component.Icon
 import app.orbitmusic.core.designsystem.component.Txt
+import app.orbitmusic.core.designsystem.component.quietClick
 import app.orbitmusic.core.designsystem.theme.Corners
 import app.orbitmusic.core.designsystem.theme.Ink
 import app.orbitmusic.core.designsystem.theme.Space
 import app.orbitmusic.core.designsystem.theme.Type
-import app.orbitmusic.core.designsystem.theme.separate
 import app.orbitmusic.discord.DiscordConnectionState
 import app.orbitmusic.discord.DiscordRpcFormatter
 import app.orbitmusic.discord.DiscordRpcTrackContext
@@ -71,16 +66,6 @@ import kotlinx.coroutines.launch
 private enum class DiscordField {
     TOKEN,
     ACTIVITY_NAME,
-    DETAILS,
-    STATE,
-    LARGE_TEXT,
-    SMALL_TEXT,
-    LARGE_URL,
-    SMALL_URL,
-    BTN1_LABEL,
-    BTN1_URL,
-    BTN2_LABEL,
-    BTN2_URL,
     APP_ID,
 }
 
@@ -101,6 +86,7 @@ fun DiscordSettingsScreen() {
     var editingField by remember { mutableStateOf<DiscordField?>(null) }
     var tokenError by remember { mutableStateOf<String?>(null) }
     var verifyingToken by remember { mutableStateOf(false) }
+    var showAdvanced by remember { mutableStateOf(false) }
 
     val previewTrack = remember(playback.current, playback.status, playback.durationMs, playback.positionMs) {
         DiscordRpcTrackContext.fromPlayback(playback, playback.positionMs) ?: DiscordRpcTrackContext.sample()
@@ -118,7 +104,7 @@ fun DiscordSettingsScreen() {
             ) {
                 Txt("Discord", Type.Monument, align = TextAlign.Center)
                 Spacer(Modifier.height(14.dp))
-                Txt("Kizzy Rich Presence, tuned down to the margin.", Type.Aside, color = Ink.Grey, align = TextAlign.Center)
+                Txt("Kizzy Rich Presence, clean and ready.", Type.Aside, color = Ink.Grey, align = TextAlign.Center)
             }
         }
 
@@ -136,9 +122,12 @@ fun DiscordSettingsScreen() {
         }
 
         item {
-            DiscordSection("I", "Connection") {
-                Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-                    DiscordWords(
+            SettingsSection("I", "Connection") {
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(vertical = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SettingsWords(
                         title = user?.displayName ?: "Discord account",
                         detail = connectionDescription(token != null, user, connection, tokenError),
                         modifier = Modifier.weight(1f),
@@ -183,10 +172,10 @@ fun DiscordSettingsScreen() {
                         }
                     }
                 }
-                DiscordRule()
-                DiscordToggle(
+                SettingsRule()
+                SettingsToggle(
                     title = "Enable Rich Presence",
-                    detail = "Broadcasts what you are listening to over Discord Gateway v10 with live cover art proxying.",
+                    detail = "Share what you are listening to on your Discord profile.",
                     on = config.enabled,
                     modifier = Modifier.testTag("discord_enabled_toggle"),
                     onToggle = { store.setEnabled(!config.enabled) },
@@ -195,164 +184,101 @@ fun DiscordSettingsScreen() {
         }
 
         item {
-            DiscordSection("II", "Activity") {
-                DiscordChoice(
+            SettingsSection("II", "Presence") {
+                SettingsChoice(
                     title = "Activity type",
-                    detail = "How Discord labels your session on your profile.",
+                    detail = "How Discord labels your session.",
                     options = DiscordActivityType.entries.map { it.label },
                     selected = DiscordActivityType.entries.indexOf(config.activityType).coerceAtLeast(0),
                     modifier = Modifier.testTag("discord_activity_type_choice"),
                     onSelect = { idx -> store.update { it.copy(activityType = DiscordActivityType.entries[idx]) } },
                 )
                 if (config.activityType == DiscordActivityType.LISTENING) {
-                    DiscordChoice(
+                    SettingsChoice(
                         title = "Profile display line",
-                        detail = "Chooses whether your member list line shows the app name, artist, or song title.",
+                        detail = "What shows next to your name in the member list.",
                         options = DiscordStatusDisplay.entries.map { it.label },
                         selected = DiscordStatusDisplay.entries.indexOf(config.statusDisplayType).coerceAtLeast(0),
                         modifier = Modifier.testTag("discord_status_display_choice"),
                         onSelect = { idx -> store.update { it.copy(statusDisplayType = DiscordStatusDisplay.entries[idx]) } },
                     )
                 }
-                DiscordChoice(
-                    title = "Presence status",
-                    detail = "Your Discord availability dot while Rich Presence is connected.",
+                SettingsChoice(
+                    title = "Online status",
+                    detail = "Your availability dot while connected.",
                     options = DiscordOnlineStatus.entries.map { it.label },
                     selected = DiscordOnlineStatus.entries.indexOf(config.onlineStatus).coerceAtLeast(0),
                     modifier = Modifier.testTag("discord_online_status_choice"),
                     onSelect = { idx -> store.update { it.copy(onlineStatus = DiscordOnlineStatus.entries[idx]) } },
                 )
-            }
-        }
-
-        item {
-            DiscordSection("III", "Text & placeholders") {
-                Txt(
-                    "Variables: {song_name}, {artist_name}, {album_name}, {app_name}, {track_duration}, {yt_url}",
-                    Type.Meta,
-                    color = Ink.Grey,
-                    modifier = Modifier.padding(top = 14.dp, bottom = 6.dp),
-                )
-                DiscordEditRow(
-                    title = "Activity name",
-                    value = config.activityName,
-                    testTag = "discord_edit_activity_name",
-                    onEdit = { editingField = DiscordField.ACTIVITY_NAME },
-                )
-                DiscordEditRow(
-                    title = "Details (first line)",
-                    value = config.detailsTemplate,
-                    testTag = "discord_edit_details",
-                    onEdit = { editingField = DiscordField.DETAILS },
-                )
-                DiscordEditRow(
-                    title = "State (second line)",
-                    value = config.stateTemplate,
-                    testTag = "discord_edit_state",
-                    onEdit = { editingField = DiscordField.STATE },
-                )
-                DiscordEditRow(
-                    title = "Artwork hover text",
-                    value = config.largeImageTextTemplate,
-                    testTag = "discord_edit_large_text",
-                    onEdit = { editingField = DiscordField.LARGE_TEXT },
-                )
-                DiscordEditRow(
-                    title = "Small badge text",
-                    value = config.smallImageTextTemplate,
-                    testTag = "discord_edit_small_text",
-                    onEdit = { editingField = DiscordField.SMALL_TEXT },
-                )
-            }
-        }
-
-        item {
-            DiscordSection("IV", "Artwork & timing") {
-                DiscordToggle(
+                SettingsToggle(
                     title = "Show track artwork",
-                    detail = "Resolves cover art into Discord's external-assets CDN (`mp:`) for full album previews.",
+                    detail = "Display the song's cover art on your Discord card.",
                     on = config.showArtwork,
                     modifier = Modifier.testTag("discord_show_artwork_toggle"),
                     onToggle = { store.update { it.copy(showArtwork = !it.showArtwork) } },
                 )
-                DiscordToggle(
+                SettingsToggle(
                     title = "Show timestamps",
-                    detail = "Displays live elapsed and remaining progress bar synced to playback and seeks.",
+                    detail = "Display the live progress timer.",
                     on = config.showTimestamps,
                     modifier = Modifier.testTag("discord_show_timestamps_toggle"),
                     onToggle = { store.update { it.copy(showTimestamps = !it.showTimestamps) } },
                 )
-                DiscordToggle(
+                SettingsToggle(
                     title = "Keep when paused",
-                    detail = "Keeps Rich Presence visible while paused instead of clearing the card.",
+                    detail = "Keep the card visible while music is paused.",
                     on = config.showWhenPaused,
                     modifier = Modifier.testTag("discord_show_paused_toggle"),
                     onToggle = { store.update { it.copy(showWhenPaused = !it.showWhenPaused) } },
                 )
-                DiscordToggle(
-                    title = "Show small badge",
-                    detail = "Includes a secondary badge image/tooltip beside the cover.",
-                    on = config.showSmallIcon,
-                    modifier = Modifier.testTag("discord_show_small_icon_toggle"),
-                    onToggle = { store.update { it.copy(showSmallIcon = !it.showSmallIcon) } },
-                )
-                DiscordEditRow(
-                    title = "Custom large image URL",
-                    value = config.customLargeImageUrl.ifBlank { "Track artwork (automatic)" },
-                    testTag = "discord_edit_large_url",
-                    onEdit = { editingField = DiscordField.LARGE_URL },
-                )
-                DiscordEditRow(
-                    title = "Custom small image URL",
-                    value = config.customSmallImageUrl.ifBlank { "None" },
-                    testTag = "discord_edit_small_url",
-                    onEdit = { editingField = DiscordField.SMALL_URL },
+                SettingsToggle(
+                    title = "YouTube Music button",
+                    detail = "Include a Listen on YouTube Music link button on your card.",
+                    on = config.showButtons,
+                    modifier = Modifier.testTag("discord_show_buttons_toggle"),
+                    onToggle = { store.update { it.copy(showButtons = !it.showButtons) } },
                 )
             }
         }
 
         item {
-            DiscordSection("V", "Buttons & advanced") {
-                DiscordToggle(
-                    title = "Action buttons",
-                    detail = "Adds up to two clickable links beneath your Rich Presence card (HTTPS URLs only).",
-                    on = config.showButtons,
-                    modifier = Modifier.testTag("discord_show_buttons_toggle"),
-                    onToggle = { store.update { it.copy(showButtons = !it.showButtons) } },
-                )
-                if (config.showButtons) {
-                    DiscordEditRow(
-                        title = "Button 1 label",
-                        value = config.button1Label.ifBlank { "Disabled" },
-                        testTag = "discord_edit_btn1_label",
-                        onEdit = { editingField = DiscordField.BTN1_LABEL },
+            SettingsSection("III", "Advanced") {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag("discord_advanced_toggle")
+                        .quietClick { showAdvanced = !showAdvanced }
+                        .padding(vertical = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SettingsWords(
+                        title = "Advanced options",
+                        detail = if (showAdvanced) "Hide custom app name, Application ID, and reset." else "Custom app name, Application ID, and reset defaults.",
+                        modifier = Modifier.weight(1f),
                     )
-                    DiscordEditRow(
-                        title = "Button 1 URL",
-                        value = config.button1Url.ifBlank { "None" },
-                        testTag = "discord_edit_btn1_url",
-                        onEdit = { editingField = DiscordField.BTN1_URL },
-                    )
-                    DiscordEditRow(
-                        title = "Button 2 label",
-                        value = config.button2Label.ifBlank { "Disabled" },
-                        testTag = "discord_edit_btn2_label",
-                        onEdit = { editingField = DiscordField.BTN2_LABEL },
-                    )
-                    DiscordEditRow(
-                        title = "Button 2 URL",
-                        value = config.button2Url.ifBlank { "None" },
-                        testTag = "discord_edit_btn2_url",
-                        onEdit = { editingField = DiscordField.BTN2_URL },
-                    )
+                    Spacer(Modifier.width(12.dp))
+                    Icon(if (showAdvanced) Glyph.Down else Glyph.Forward, size = 14.dp, color = Ink.Dim)
                 }
-                DiscordEditRow(
-                    title = "Application ID",
-                    value = config.applicationId,
-                    testTag = "discord_edit_app_id",
-                    onEdit = { editingField = DiscordField.APP_ID },
-                )
-                DiscordResetRow(onReset = { store.resetDefaults() })
+                SettingsRule()
+                AnimatedVisibility(visible = showAdvanced) {
+                    Column(Modifier.fillMaxWidth()) {
+                        DiscordEditRow(
+                            title = "Activity name",
+                            value = config.activityName,
+                            testTag = "discord_edit_activity_name",
+                            onEdit = { editingField = DiscordField.ACTIVITY_NAME },
+                        )
+                        DiscordEditRow(
+                            title = "Application ID",
+                            value = config.applicationId,
+                            testTag = "discord_edit_app_id",
+                            onEdit = { editingField = DiscordField.APP_ID },
+                        )
+                        DiscordResetRow(onReset = { store.resetDefaults() })
+                    }
+                }
             }
         }
 
@@ -360,7 +286,11 @@ fun DiscordSettingsScreen() {
     }
 
     editingField?.let { field ->
-        val (title, initial) = fieldDialogMeta(field, config)
+        val (title, initial) = when (field) {
+            DiscordField.TOKEN -> "Discord Token" to ""
+            DiscordField.ACTIVITY_NAME -> "Activity Name" to config.activityName
+            DiscordField.APP_ID -> "Discord Application ID" to config.applicationId
+        }
         NameDialog(
             title = title,
             initial = initial,
@@ -380,17 +310,9 @@ fun DiscordSettingsScreen() {
                             }
                         }
                     }
-                    DiscordField.ACTIVITY_NAME -> store.update { it.copy(activityName = trimmed.ifBlank { DiscordConfig.DEFAULT_ACTIVITY_NAME }) }
-                    DiscordField.DETAILS -> store.update { it.copy(detailsTemplate = trimmed) }
-                    DiscordField.STATE -> store.update { it.copy(stateTemplate = trimmed) }
-                    DiscordField.LARGE_TEXT -> store.update { it.copy(largeImageTextTemplate = trimmed) }
-                    DiscordField.SMALL_TEXT -> store.update { it.copy(smallImageTextTemplate = trimmed) }
-                    DiscordField.LARGE_URL -> store.update { it.copy(customLargeImageUrl = trimmed) }
-                    DiscordField.SMALL_URL -> store.update { it.copy(customSmallImageUrl = trimmed) }
-                    DiscordField.BTN1_LABEL -> store.update { it.copy(button1Label = trimmed) }
-                    DiscordField.BTN1_URL -> store.update { it.copy(button1Url = trimmed) }
-                    DiscordField.BTN2_LABEL -> store.update { it.copy(button2Label = trimmed) }
-                    DiscordField.BTN2_URL -> store.update { it.copy(button2Url = trimmed) }
+                    DiscordField.ACTIVITY_NAME -> store.update {
+                        it.copy(activityName = trimmed.ifBlank { DiscordConfig.DEFAULT_ACTIVITY_NAME })
+                    }
                     DiscordField.APP_ID -> store.update {
                         it.copy(applicationId = trimmed.ifBlank { DiscordConfig.DEFAULT_APPLICATION_ID })
                     }
@@ -398,22 +320,6 @@ fun DiscordSettingsScreen() {
             },
         )
     }
-}
-
-private fun fieldDialogMeta(field: DiscordField, config: DiscordConfig): Pair<String, String> = when (field) {
-    DiscordField.TOKEN -> "Discord Token" to ""
-    DiscordField.ACTIVITY_NAME -> "Activity Name" to config.activityName
-    DiscordField.DETAILS -> "Details Template" to config.detailsTemplate
-    DiscordField.STATE -> "State Template" to config.stateTemplate
-    DiscordField.LARGE_TEXT -> "Artwork Hover Text" to config.largeImageTextTemplate
-    DiscordField.SMALL_TEXT -> "Small Badge Text" to config.smallImageTextTemplate
-    DiscordField.LARGE_URL -> "Custom Large Image URL" to config.customLargeImageUrl
-    DiscordField.SMALL_URL -> "Custom Small Image URL" to config.customSmallImageUrl
-    DiscordField.BTN1_LABEL -> "Button 1 Label" to config.button1Label
-    DiscordField.BTN1_URL -> "Button 1 URL" to config.button1Url
-    DiscordField.BTN2_LABEL -> "Button 2 Label" to config.button2Label
-    DiscordField.BTN2_URL -> "Button 2 URL" to config.button2Url
-    DiscordField.APP_ID -> "Discord Application ID" to config.applicationId
 }
 
 private fun connectionDescription(
@@ -427,8 +333,8 @@ private fun connectionDescription(
         is DiscordConnectionState.Error -> connection.message
         is DiscordConnectionState.Connected -> "${user?.handle ?: "Signed in"} · Live: ${connection.summary}"
         is DiscordConnectionState.Idle -> "${user?.handle ?: "Signed in"} · Waiting for playback"
-        DiscordConnectionState.Connecting -> "${user?.handle ?: "Signed in"} · Connecting to Discord Gateway…"
-        DiscordConnectionState.SignedOut -> "Not signed in. Sign in with Discord or paste a token to enable RPC."
+        DiscordConnectionState.Connecting -> "${user?.handle ?: "Signed in"} · Connecting…"
+        DiscordConnectionState.SignedOut -> "Sign in with Discord or paste a token to enable RPC."
         DiscordConnectionState.Disabled -> if (hasToken) "${user?.handle ?: "Signed in"} · Rich Presence is off." else "Sign in with Discord or paste a token to begin."
     }
 }
@@ -544,75 +450,6 @@ private fun StatusDot(status: DiscordOnlineStatus, enabled: Boolean) {
 }
 
 @Composable
-private fun DiscordSection(number: String, title: String, content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.separate().fillMaxWidth().padding(horizontal = Space.edge).padding(top = 42.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Txt(number, Type.Aside.copy(fontSize = 15.sp, lineHeight = 18.sp), color = Ink.Dim)
-            Spacer(Modifier.width(12.dp))
-            Txt(title, Type.Label, color = Ink.Grey, upper = true)
-        }
-        Spacer(Modifier.height(12.dp))
-        DiscordRule()
-        content()
-    }
-}
-
-@Composable
-private fun DiscordRule() {
-    Box(Modifier.fillMaxWidth().height(0.5.dp).background(Ink.Hairline))
-}
-
-@Composable
-private fun DiscordWords(title: String, detail: String?, modifier: Modifier = Modifier) {
-    Column(modifier) {
-        Txt(title, Type.TitleSmall)
-        if (detail != null) {
-            Spacer(Modifier.height(4.dp))
-            Txt(detail, Type.Meta, color = Ink.Grey)
-        }
-    }
-}
-
-@Composable
-private fun DiscordToggle(
-    title: String,
-    detail: String,
-    on: Boolean,
-    modifier: Modifier = Modifier,
-    onToggle: () -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .semantics(mergeDescendants = false) { role = Role.Switch; stateDescription = if (on) "On" else "Off" }
-            .padding(vertical = 18.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        DiscordWords(title, detail, Modifier.weight(1f))
-        Spacer(Modifier.width(16.dp))
-        GlassSegments(listOf("Off", "On"), if (on) 1 else 0, { if ((it == 1) != on) onToggle() }, modifier = modifier)
-    }
-    DiscordRule()
-}
-
-@Composable
-private fun DiscordChoice(
-    title: String,
-    detail: String,
-    options: List<String>,
-    selected: Int,
-    modifier: Modifier = Modifier,
-    onSelect: (Int) -> Unit,
-) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 18.dp)) {
-        DiscordWords(title, detail)
-        Spacer(Modifier.height(14.dp))
-        GlassSegments(options, selected, onSelect, modifier = modifier)
-    }
-    DiscordRule()
-}
-
-@Composable
 private fun DiscordEditRow(
     title: String,
     value: String,
@@ -620,7 +457,7 @@ private fun DiscordEditRow(
     onEdit: () -> Unit,
 ) {
     Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-        DiscordWords(title, value.ifBlank { "Empty" }, Modifier.weight(1f))
+        SettingsWords(title, value.ifBlank { "Empty" }, Modifier.weight(1f))
         Spacer(Modifier.width(16.dp))
         GlassPill(
             "Edit",
@@ -629,7 +466,7 @@ private fun DiscordEditRow(
             onClick = onEdit,
         )
     }
-    DiscordRule()
+    SettingsRule()
 }
 
 @Composable
@@ -639,7 +476,7 @@ private fun DiscordResetRow(onReset: () -> Unit) {
     LaunchedEffect(armed) { if (armed) { delay(3500); armed = false } }
     LaunchedEffect(done) { if (done) { delay(2200); done = false } }
     Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-        DiscordWords("Reset RPC defaults", "Restores templates, artwork rules, buttons, and Application ID.", Modifier.weight(1f))
+        SettingsWords("Reset RPC defaults", "Restores default presence settings and Application ID.", Modifier.weight(1f))
         Spacer(Modifier.width(16.dp))
         GlassPill(
             when {
@@ -662,5 +499,5 @@ private fun DiscordResetRow(onReset: () -> Unit) {
             },
         )
     }
-    DiscordRule()
+    SettingsRule()
 }

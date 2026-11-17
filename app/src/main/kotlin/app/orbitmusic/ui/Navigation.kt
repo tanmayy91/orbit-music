@@ -33,6 +33,12 @@ sealed interface Route {
     data object Charts : Route { override val key = "charts" }
     data object Moods : Route { override val key = "moods" }
     data object Settings : Route { override val key = "settings" }
+    data object SettingsAppearance : Route { override val key = "settings-appearance" }
+    data object SettingsPlayback : Route { override val key = "settings-playback" }
+    data object SettingsLibrary : Route { override val key = "settings-library" }
+    data object SettingsSources : Route { override val key = "settings-sources" }
+    data object SettingsSystem : Route { override val key = "settings-system" }
+    data object SettingsAbout : Route { override val key = "settings-about" }
     data object Discord : Route { override val key = "discord" }
     data object Equaliser : Route { override val key = "equaliser" }
 

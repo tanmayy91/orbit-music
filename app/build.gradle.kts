@@ -23,7 +23,9 @@ val sideBySide = providers.gradleProperty("orbitmusic.applicationIdSuffix").orNu
 val versionManifest = groovy.json.JsonSlurper().parseText(
     providers.fileContents(rootProject.layout.projectDirectory.file("v.json")).asText.get(),
 ) as Map<String, Any?>
-val appVersionName = (versionManifest["version"] as? String)?.trim()?.removePrefix("v")?.removePrefix("V")
+val appVersionName = (providers.gradleProperty("orbitmusic.version").orNull
+    ?: (versionManifest["version"] as? String))
+    ?.trim()?.removePrefix("v")?.removePrefix("V")
     ?.takeIf { it.isNotEmpty() }
     ?: error("Missing \"version\" in v.json")
 val explicitVersionCode = (versionManifest["versionCode"] as? Number)?.toInt()

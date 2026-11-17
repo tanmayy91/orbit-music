@@ -1,0 +1,137 @@
+name: Discord Release Notification
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to post (e.g. v1.2.0). Leave empty for latest release."
+        required: false
+        default: ""
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release tag to post"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    name: Post Release to Discord
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send Discord release webhook
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "::notice::DISCORD_WEBHOOK_URL secret is not configured; skipping Discord release notification."
+            exit 0
+          fi
+
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          token = os.environ["GITHUB_TOKEN"]
+          webhook_url = os.environ["DISCORD_WEBHOOK_URL"].strip()
+          tag = (os.environ.get("INPUT_TAG") or os.environ.get("EVENT_TAG") or "").strip()
+
+          api_url = (
+              f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
+              if tag
+              else f"https://api.github.com/repos/{repo}/releases/latest"
+          )
+
+          req = urllib.request.Request(
+              api_url,
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {token}",
+                  "User-Agent": "OrbitMusic-Release-Bot",
+              },
+          )
+          with urllib.request.urlopen(req, timeout=20) as resp:
+              release = json.loads(resp.read().decode("utf-8"))
+
+          tag_name = release.get("tag_name") or tag or "release"
+          title = release.get("name") or f"Orbit Music {tag_name}"
+          html_url = release.get("html_url") or f"https://github.com/{repo}/releases"
+          body = (release.get("body") or "").strip()
+          prerelease = bool(release.get("prerelease"))
+          published_at = release.get("published_at")
+
+          assets = release.get("assets") or []
+          apk_asset = next(
+              (a for a in assets if (a.get("name") or "").lower().endswith(".apk")),
+              None,
+          )
+
+          fields = [
+              {"name": "Version", "value": f"`{tag_name}`" + (" (Pre-release)" if prerelease else ""), "inline": True},
+          ]
+          if apk_asset:
+              size_mb = apk_asset.get("size", 0) / (1024 * 1024)
+              dl_url = apk_asset.get("browser_download_url")
+              apk_name = apk_asset.get("name")
+              fields.append({"name": "APK Size", "value": f"{size_mb:.1f} MB", "inline": True})
+              digest = (apk_asset.get("digest") or "").removeprefix("sha256:")
+              if digest:
+                  fields.append({"name": "SHA-256", "value": f"`{digest[:16]}...`", "inline": True})
+              fields.append({
+                  "name": "Download",
+                  "value": f"[{apk_name}]({dl_url}) · [Release Notes]({html_url})",
+                  "inline": False,
+              })
+          else:
+              fields.append({"name": "Release", "value": f"[View on GitHub]({html_url})", "inline": False})
+
+          description = body if len(body) <= 3500 else body[:3497].rstrip() + "..."
+          if not description:
+              description = f"Orbit Music **{tag_name}** is now available."
+
+          embed = {
+              "title": title,
+              "url": html_url,
+              "description": description,
+              "color": 0xFFFFFF,
+              "fields": fields,
+              "footer": {"text": f"{repo} · Orbit Music"},
+          }
+          if published_at:
+              embed["timestamp"] = published_at
+
+          payload = {
+              "username": "Orbit Music Releases",
+              "embeds": [embed],
+          }
+
+          post_req = urllib.request.Request(
+              webhook_url,
+              data=json.dumps(payload).encode("utf-8"),
+              headers={
+                  "Content-Type": "application/json",
+                  "User-Agent": "OrbitMusic-Release-Bot",
+              },
+              method="POST",
+          )
+          try:
+              with urllib.request.urlopen(post_req, timeout=20) as resp:
+                  print(f"Discord webhook responded with HTTP {resp.status}")
+          except urllib.error.HTTPError as err:
+              detail = err.read().decode("utf-8", errors="replace")
+              raise SystemExit(f"Discord webhook failed ({err.code}): {detail}")
+          PY
