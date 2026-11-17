@@ -33,4 +33,5 @@ Thumbs.db
 # Tooling scratch
 .kotlin/
 *.log
+*-debug.log
 bin/

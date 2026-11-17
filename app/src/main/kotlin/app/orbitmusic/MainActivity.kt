@@ -68,6 +68,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.hasExtra("FIREBASE_APPCHECK_DEBUG_TOKEN")) {
+            configureAppCheck(this, intent)
+        }
         // Debug builds: the update preview works on a running app too.
         if (packageName.endsWith(".debug") && intent.getStringExtra("orbitmusic.preview") == "update") {
             (application as OrbitMusicApp).container.updates.checkNow(pretend = "0.0.1")

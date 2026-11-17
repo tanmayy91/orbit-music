@@ -21,6 +21,7 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -146,9 +147,10 @@ fun LibraryScreen() {
             when (shelf) {
                 Shelf.Playlists -> {
                     item(key = "ary_playlists_bar") {
-                        Box(
+                        FlowRow(
                             Modifier.fillMaxWidth().padding(horizontal = Space.edge, vertical = 4.dp),
-                            contentAlignment = Alignment.Center,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             GlassPill(
                                 text = "Ask $assistantName to manage playlists",
@@ -157,6 +159,13 @@ fun LibraryScreen() {
                                 small = true,
                                 modifier = Modifier.testTag("library_open_assistant_button"),
                                 onClick = { actions.go(Route.Ary()) },
+                            )
+                            GlassPill(
+                                text = "Collab & Friends",
+                                icon = Glyph.Profile,
+                                small = true,
+                                modifier = Modifier.testTag("library_open_collab_button"),
+                                onClick = { actions.nav.open(Route.Cloud) },
                             )
                         }
                     }

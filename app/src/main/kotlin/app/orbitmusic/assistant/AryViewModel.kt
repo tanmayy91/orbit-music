@@ -5,6 +5,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import app.orbitmusic.Container
+import app.orbitmusic.cloud.ArySyncMessage
+import app.orbitmusic.cloud.OperationType
+import app.orbitmusic.cloud.UserProfile
+import app.orbitmusic.cloud.handleFirestoreError
 import app.orbitmusic.core.data.Settings
 import app.orbitmusic.core.model.Outcome
 import app.orbitmusic.core.model.Track
@@ -12,12 +16,18 @@ import com.google.firebase.Firebase
 import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.Schema
 import com.google.firebase.ai.type.generationConfig
+import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 
@@ -90,6 +100,9 @@ class AryViewModel(
     }
 
     private var nextMessageId = 1L
+    private var maxSyncedSeq = 0
+    private var hydratedCloudUid: String? = null
+    private var activeSyncProfile: UserProfile? = null
 
     private val _focusedPlaylistId = MutableStateFlow(initialPlaylistId)
     val focusedPlaylistId: StateFlow<Long?> = _focusedPlaylistId.asStateFlow()
@@ -100,7 +113,114 @@ class AryViewModel(
     private val _uiState = MutableStateFlow<AryUiState>(AryUiState.Idle)
     val uiState: StateFlow<AryUiState> = _uiState.asStateFlow()
 
+    private val _cloudSyncStatus = MutableStateFlow<AryCloudSyncStatus>(AryCloudSyncStatus.LocalOnly)
+    val cloudSyncStatus: StateFlow<AryCloudSyncStatus> = _cloudSyncStatus.asStateFlow()
+
     private var lastSubmittedPrompt: String? = null
+
+    init {
+        observeCloudConversation()
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun observeCloudConversation() {
+        viewModelScope.launch {
+            container.cloudAuth.authState
+                .flatMapLatest { user ->
+                    if (user == null) {
+                        hydratedCloudUid = null
+                        activeSyncProfile = null
+                        _cloudSyncStatus.value = AryCloudSyncStatus.LocalOnly
+                        flowOf<Pair<UserProfile?, List<ArySyncMessage>?>>(null to null)
+                    } else {
+                        container.cloud.observeUserProfile(user.uid)
+                            .catch { e ->
+                                if (e is CancellationException) throw e
+                                if (e is FirebaseFirestoreException) {
+                                    handleFirestoreError(e, OperationType.GET, "users/${user.uid}")
+                                    emit(null)
+                                } else {
+                                    throw e
+                                }
+                            }
+                            .flatMapLatest { profile ->
+                                activeSyncProfile = profile
+                                when {
+                                    profile == null -> {
+                                        _cloudSyncStatus.value = AryCloudSyncStatus.LocalOnly
+                                        flowOf(null to null)
+                                    }
+                                    !profile.arySyncEnabled -> {
+                                        _cloudSyncStatus.value = AryCloudSyncStatus.Paused(profile.handle)
+                                        flowOf(profile to null)
+                                    }
+                                    else -> {
+                                        _cloudSyncStatus.value = AryCloudSyncStatus.Synced(profile.handle)
+                                        container.cloud.observeAryMessages(profile.uid)
+                                            .map<List<ArySyncMessage>, Pair<UserProfile?, List<ArySyncMessage>?>> { msgs ->
+                                                profile to msgs
+                                            }
+                                            .catch { e ->
+                                                if (e is CancellationException) throw e
+                                                if (e is FirebaseFirestoreException) {
+                                                    handleFirestoreError(e, OperationType.LIST, "users/${profile.uid}/aryMessages")
+                                                    emit(profile to null)
+                                                } else {
+                                                    throw e
+                                                }
+                                            }
+                                    }
+                                }
+                            }
+                    }
+                }
+                .collect { (profile, remote) ->
+                    if (profile == null || remote == null) return@collect
+                    maxSyncedSeq = maxOf(maxSyncedSeq, remote.maxOfOrNull { it.seq } ?: _messages.value.size)
+                    val shouldHydrate = hydratedCloudUid != profile.uid ||
+                        (remote.size > _messages.value.size && _uiState.value !is AryUiState.Loading)
+                    if (shouldHydrate) {
+                        hydratedCloudUid = profile.uid
+                        if (remote.isNotEmpty()) {
+                            val existing = _messages.value
+                            val merged = remote.mapIndexed { idx, msg ->
+                                val kept = existing.getOrNull(idx)
+                                when (msg.role) {
+                                    "user" -> {
+                                        if (kept is AryMessage.User && kept.text == msg.text) kept
+                                        else AryMessage.User(nextMessageId++, msg.text)
+                                    }
+                                    else -> {
+                                        if (kept is AryMessage.Assistant && kept.reply == msg.text) kept
+                                        else AryMessage.Assistant(
+                                            id = nextMessageId++,
+                                            reply = msg.text,
+                                            changes = msg.changeSummaries.map { summary ->
+                                                AryChange(
+                                                    kind = if (summary.startsWith("Removed", ignoreCase = true)) {
+                                                        AryChangeKind.REMOVED
+                                                    } else if (summary.startsWith("Created", ignoreCase = true)) {
+                                                        AryChangeKind.CREATED_PLAYLIST
+                                                    } else if (summary.startsWith("Couldn", ignoreCase = true)) {
+                                                        AryChangeKind.NOT_FOUND
+                                                    } else {
+                                                        AryChangeKind.ADDED
+                                                    },
+                                                    playlistId = null,
+                                                    playlistTitle = msg.focusedPlaylistTitle ?: "Playlist",
+                                                    summary = summary,
+                                                )
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                            _messages.value = merged
+                        }
+                    }
+                }
+        }
+    }
 
     fun selectPlaylist(id: Long?) {
         _focusedPlaylistId.value = id
@@ -110,6 +230,13 @@ class AryViewModel(
         _messages.value = emptyList()
         _uiState.value = AryUiState.Idle
         lastSubmittedPrompt = null
+        maxSyncedSeq = 0
+        val syncProfile = activeSyncProfile
+        if (syncProfile != null && syncProfile.arySyncEnabled) {
+            viewModelScope.launch {
+                container.cloud.clearAryMessages(syncProfile.uid)
+            }
+        }
     }
 
     fun dismissError() {
@@ -137,6 +264,23 @@ class AryViewModel(
             ?: Settings.DEFAULT_ASSISTANT_NAME
         if (appendUserBubble) {
             _messages.value = _messages.value + AryMessage.User(nextMessageId++, prompt)
+            val syncProfile = activeSyncProfile
+            if (syncProfile != null && syncProfile.arySyncEnabled) {
+                val userSeq = ++maxSyncedSeq
+                viewModelScope.launch {
+                    val focusedTitle = _focusedPlaylistId.value?.let { fid ->
+                        runCatching { container.library.playlists.first().firstOrNull { it.id == fid }?.title }.getOrNull()
+                    }
+                    container.cloud.saveAryMessage(
+                        uid = syncProfile.uid,
+                        role = "user",
+                        text = prompt,
+                        changeSummaries = emptyList(),
+                        focusedPlaylistTitle = focusedTitle,
+                        seq = userSeq,
+                    )
+                }
+            }
         }
 
         viewModelScope.launch {
@@ -172,12 +316,28 @@ class AryViewModel(
                     emptyList()
                 }
 
+                val replyText = plan.reply.trim().ifEmpty { "Done." }
                 _messages.value = _messages.value + AryMessage.Assistant(
                     id = nextMessageId++,
-                    reply = plan.reply.trim().ifEmpty { "Done." },
+                    reply = replyText,
                     changes = appliedChanges,
                 )
                 _uiState.value = AryUiState.Idle
+
+                val syncProfile = activeSyncProfile
+                if (syncProfile != null && syncProfile.arySyncEnabled) {
+                    val replySeq = ++maxSyncedSeq
+                    val focusedTitle = appliedChanges.lastOrNull()?.playlistTitle
+                        ?: playlists.firstOrNull { it.playlist.id == _focusedPlaylistId.value }?.playlist?.title
+                    container.cloud.saveAryMessage(
+                        uid = syncProfile.uid,
+                        role = "assistant",
+                        text = replyText,
+                        changeSummaries = appliedChanges.map { it.summary },
+                        focusedPlaylistTitle = focusedTitle,
+                        seq = replySeq,
+                    )
+                }
             } catch (e: TimeoutCancellationException) {
                 Log.e(TAG, "Firebase AI generation timed out", e)
                 _uiState.value = AryUiState.Error("Request timed out after 60 seconds. Please try again.")

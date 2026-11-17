@@ -1,0 +1,538 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: deny all unmatched paths.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- GLOBAL PRIMITIVE HELPERS ---
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidHandle(handle) {
+      return handle is string && handle.size() >= 3 && handle.size() <= 30 && handle.matches('^[a-z0-9_]+$');
+    }
+
+    function isValidDiscordKey(key) {
+      return key is string && key.size() >= 2 && key.size() <= 32 && key.matches('^[a-z0-9_.]+$');
+    }
+
+    function isValidInviteCode(code) {
+      return code is string && code.size() >= 6 && code.size() <= 12 && code.matches('^[A-Z0-9]+$');
+    }
+
+    function isTimestampBounded(ts) {
+      return ts is timestamp && ts <= request.time;
+    }
+
+    function pairDocId(a, b) {
+      return a < b ? a + '_' + b : b + '_' + a;
+    }
+
+    function friendshipPath(a, b) {
+      return /databases/$(database)/documents/friendships/$(pairDocId(a, b));
+    }
+
+    function isAcceptedFriend(targetUid) {
+      return isSignedIn() &&
+             request.auth.uid != targetUid &&
+             exists(friendshipPath(request.auth.uid, targetUid)) &&
+             get(friendshipPath(request.auth.uid, targetUid)).data.status == 'accepted';
+    }
+
+    // --- ENTITY VALIDATION BLUEPRINTS ---
+
+    function isValidUserProfile(data) {
+      return data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 40 &&
+             isValidHandle(data.handle) &&
+             (!('discordUsername' in data) || (data.discordUsername is string && data.discordUsername.size() >= 2 && data.discordUsername.size() <= 32)) &&
+             (!('discordId' in data) || (data.discordId is string && data.discordId.size() >= 4 && data.discordId.size() <= 40)) &&
+             data.arySyncEnabled is bool &&
+             data.cardShared is bool;
+    }
+
+    function isValidDirectoryEntry(data, handle) {
+      return data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+             data.handle == handle &&
+             isValidHandle(data.handle) &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 40 &&
+             (!('discordUsername' in data) || (data.discordUsername is string && data.discordUsername.size() >= 2 && data.discordUsername.size() <= 32));
+    }
+
+    function isValidDiscordLookupEntry(data, discordKey) {
+      return data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+             data.discordUsername == discordKey &&
+             isValidDiscordKey(data.discordUsername) &&
+             isValidHandle(data.handle) &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 40;
+    }
+
+    function isValidArySyncMessage(data) {
+      return data.role in ['user', 'assistant'] &&
+             data.text is string && data.text.size() >= 1 && data.text.size() <= 4000 &&
+             data.changeSummaries is list && data.changeSummaries.size() <= 15 &&
+             (data.changeSummaries.size() == 0 || (data.changeSummaries[0] is string && data.changeSummaries[0].size() <= 200)) &&
+             (!('focusedPlaylistTitle' in data) || (data.focusedPlaylistTitle is string && data.focusedPlaylistTitle.size() >= 1 && data.focusedPlaylistTitle.size() <= 80)) &&
+             data.seq is int && data.seq >= 0;
+    }
+
+    function isValidFriendship(data, friendshipId) {
+      return data.memberUids is list && data.memberUids.size() == 2 &&
+             data.memberUids[0] is string && data.memberUids[1] is string &&
+             data.memberUids[0] != data.memberUids[1] &&
+             data.requesterUid is string && data.requesterUid.size() >= 1 && data.requesterUid.size() <= 128 &&
+             data.recipientUid is string && data.recipientUid.size() >= 1 && data.recipientUid.size() <= 128 &&
+             data.requesterUid != data.recipientUid &&
+             data.requesterUid in data.memberUids &&
+             data.recipientUid in data.memberUids &&
+             friendshipId == pairDocId(data.requesterUid, data.recipientUid) &&
+             data.requesterName is string && data.requesterName.size() >= 1 && data.requesterName.size() <= 40 &&
+             isValidHandle(data.requesterHandle) &&
+             data.recipientName is string && data.recipientName.size() >= 1 && data.recipientName.size() <= 40 &&
+             isValidHandle(data.recipientHandle) &&
+             data.status in ['pending', 'accepted'];
+    }
+
+    function isValidListeningCard(data, userId) {
+      return data.uid == userId &&
+             data.ownerName is string && data.ownerName.size() >= 1 && data.ownerName.size() <= 40 &&
+             isValidHandle(data.handle) &&
+             (!('discordUsername' in data) || (data.discordUsername is string && data.discordUsername.size() >= 2 && data.discordUsername.size() <= 32)) &&
+             data.persona is string && data.persona.size() >= 1 && data.persona.size() <= 40 &&
+             (!('sinceLabel' in data) || (data.sinceLabel is string && data.sinceLabel.size() <= 40)) &&
+             data.hoursLabel is string && data.hoursLabel.size() >= 1 && data.hoursLabel.size() <= 32 &&
+             data.plays is int && data.plays >= 0 &&
+             data.artistCount is int && data.artistCount >= 0 &&
+             data.bestStreak is int && data.bestStreak >= 0 &&
+             (!('topSongTitle' in data) || (data.topSongTitle is string && data.topSongTitle.size() <= 140)) &&
+             (!('topSongArtist' in data) || (data.topSongArtist is string && data.topSongArtist.size() <= 140)) &&
+             (!('topGenre' in data) || (data.topGenre is string && data.topGenre.size() <= 48)) &&
+             data.topArtists is list && data.topArtists.size() <= 4 &&
+             (data.topArtists.size() == 0 || (data.topArtists[0] is string && data.topArtists[0].size() <= 80)) &&
+             data.viewerUids is list && data.viewerUids.size() >= 1 && data.viewerUids.size() <= 100 &&
+             userId in data.viewerUids &&
+             data.viewerUids[0] is string;
+    }
+
+    function isValidPlaylistInvite(data) {
+      return isValidId(data.playlistId) &&
+             data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 80;
+    }
+
+    function isValidCollabPlaylist(data) {
+      return data.title is string && data.title.size() >= 1 && data.title.size() <= 80 &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 240)) &&
+             data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+             data.ownerName is string && data.ownerName.size() >= 1 && data.ownerName.size() <= 40 &&
+             isValidInviteCode(data.inviteCode) &&
+             data.memberUids is list && data.memberUids.size() >= 1 && data.memberUids.size() <= 50 &&
+             data.ownerId in data.memberUids &&
+             data.memberUids[0] is string &&
+             data.memberNames is list && data.memberNames.size() >= 1 && data.memberNames.size() <= 50 &&
+             data.memberNames[0] is string && data.memberNames[0].size() <= 80 &&
+             data.trackCount is int && data.trackCount >= 0 &&
+             data.trackDocIds is list && data.trackDocIds.size() <= 200 &&
+             (data.trackDocIds.size() == 0 || (data.trackDocIds[0] is string && data.trackDocIds[0].size() <= 128)) &&
+             (!('coverUrl' in data) || (data.coverUrl is string && data.coverUrl.size() <= 500));
+    }
+
+    function isValidCollabTrack(data, playlistId) {
+      return data.playlistId == playlistId &&
+             data.memberUids is list && data.memberUids.size() >= 1 && data.memberUids.size() <= 50 &&
+             data.memberUids[0] is string &&
+             data.mediaId is string && data.mediaId.size() >= 1 && data.mediaId.size() <= 200 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+             data.artistLine is string && data.artistLine.size() <= 160 &&
+             (!('albumTitle' in data) || (data.albumTitle is string && data.albumTitle.size() <= 160)) &&
+             (!('artworkUrl' in data) || (data.artworkUrl is string && data.artworkUrl.size() <= 500)) &&
+             (!('durationMs' in data) || (data.durationMs is int && data.durationMs >= 0)) &&
+             data.addedByUid is string && data.addedByUid.size() >= 1 && data.addedByUid.size() <= 128 &&
+             data.addedByName is string && data.addedByName.size() >= 1 && data.addedByName.size() <= 40;
+    }
+
+    // --- 1. USER PROFILE & ARY CONVERSATION SYNC ---
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       incoming().keys().hasAll(['uid', 'displayName', 'handle', 'arySyncEnabled', 'cardShared', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['uid', 'displayName', 'handle', 'discordUsername', 'discordId', 'arySyncEnabled', 'cardShared', 'createdAt', 'updatedAt']) &&
+                       isValidUserProfile(incoming()) &&
+                       incoming().uid == request.auth.uid &&
+                       isTimestampBounded(incoming().createdAt) &&
+                       isTimestampBounded(incoming().updatedAt);
+
+      allow update: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       isValidUserProfile(incoming()) &&
+                       incoming().uid == existing().uid &&
+                       incoming().createdAt == existing().createdAt &&
+                       isTimestampBounded(incoming().updatedAt) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'displayName', 'handle', 'discordUsername', 'discordId', 'arySyncEnabled', 'cardShared', 'updatedAt'
+                       ]);
+
+      allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+
+      match /aryMessages/{messageId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(messageId) && request.auth.uid == userId;
+        // User-scoped subcollection list: check path wildcard only (no existing() / get()).
+        allow list: if isSignedIn() && request.auth.uid == userId;
+
+        allow create: if isSignedIn() &&
+                         isValidId(userId) &&
+                         isValidId(messageId) &&
+                         request.auth.uid == userId &&
+                         incoming().keys().hasAll(['role', 'text', 'changeSummaries', 'seq', 'createdAt']) &&
+                         incoming().keys().hasOnly(['role', 'text', 'changeSummaries', 'focusedPlaylistTitle', 'seq', 'createdAt']) &&
+                         isValidArySyncMessage(incoming()) &&
+                         isTimestampBounded(incoming().createdAt) &&
+                         exists(/databases/$(database)/documents/users/$(userId));
+
+        allow update: if false;
+        allow delete: if isSignedIn() && isValidId(userId) && isValidId(messageId) && request.auth.uid == userId;
+      }
+    }
+
+    // --- 2. EXACT-MATCH LOOKUP DIRECTORIES ---
+
+    match /listenerDirectory/{handle} {
+      allow get: if isSignedIn() && isValidHandle(handle);
+      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       isValidHandle(handle) &&
+                       incoming().keys().hasAll(['uid', 'handle', 'displayName', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['uid', 'handle', 'displayName', 'discordUsername', 'createdAt', 'updatedAt']) &&
+                       isValidDirectoryEntry(incoming(), handle) &&
+                       incoming().uid == request.auth.uid &&
+                       isTimestampBounded(incoming().createdAt) &&
+                       isTimestampBounded(incoming().updatedAt) &&
+                       existsAfter(/databases/$(database)/documents/users/$(request.auth.uid));
+
+      allow update: if isSignedIn() &&
+                       isValidHandle(handle) &&
+                       existing().uid == request.auth.uid &&
+                       isValidDirectoryEntry(incoming(), handle) &&
+                       incoming().uid == existing().uid &&
+                       incoming().handle == existing().handle &&
+                       incoming().createdAt == existing().createdAt &&
+                       isTimestampBounded(incoming().updatedAt) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'discordUsername', 'updatedAt']);
+
+      allow delete: if isSignedIn() && isValidHandle(handle) && existing().uid == request.auth.uid;
+    }
+
+    match /discordDirectory/{discordKey} {
+      allow get: if isSignedIn() && isValidDiscordKey(discordKey);
+      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       isValidDiscordKey(discordKey) &&
+                       incoming().keys().hasAll(['uid', 'discordUsername', 'handle', 'displayName', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['uid', 'discordUsername', 'handle', 'displayName', 'createdAt', 'updatedAt']) &&
+                       isValidDiscordLookupEntry(incoming(), discordKey) &&
+                       incoming().uid == request.auth.uid &&
+                       isTimestampBounded(incoming().createdAt) &&
+                       isTimestampBounded(incoming().updatedAt) &&
+                       existsAfter(/databases/$(database)/documents/users/$(request.auth.uid));
+
+      allow update: if isSignedIn() &&
+                       isValidDiscordKey(discordKey) &&
+                       existing().uid == request.auth.uid &&
+                       isValidDiscordLookupEntry(incoming(), discordKey) &&
+                       incoming().uid == existing().uid &&
+                       incoming().discordUsername == existing().discordUsername &&
+                       incoming().createdAt == existing().createdAt &&
+                       isTimestampBounded(incoming().updatedAt) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['handle', 'displayName', 'updatedAt']);
+
+      allow delete: if isSignedIn() && isValidDiscordKey(discordKey) && existing().uid == request.auth.uid;
+    }
+
+    // --- 3. FRIENDSHIPS ---
+
+    match /friendships/{friendshipId} {
+      allow get: if isSignedIn() &&
+                    isValidId(friendshipId) &&
+                    ((resource != null && request.auth.uid in existing().memberUids) ||
+                     (resource == null &&
+                      (friendshipId.matches('^' + request.auth.uid + '_[a-zA-Z0-9_\\-]+$') ||
+                       friendshipId.matches('^[a-zA-Z0-9_\\-]+_' + request.auth.uid + '$'))));
+
+      allow list: if isSignedIn() && request.auth.uid in resource.data.memberUids;
+
+      allow create: if isSignedIn() &&
+                       isValidId(friendshipId) &&
+                       incoming().keys().hasAll([
+                         'memberUids', 'requesterUid', 'recipientUid',
+                         'requesterName', 'requesterHandle', 'recipientName', 'recipientHandle',
+                         'status', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'memberUids', 'requesterUid', 'recipientUid',
+                         'requesterName', 'requesterHandle', 'recipientName', 'recipientHandle',
+                         'status', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidFriendship(incoming(), friendshipId) &&
+                       incoming().requesterUid == request.auth.uid &&
+                       incoming().status == 'pending' &&
+                       isTimestampBounded(incoming().createdAt) &&
+                       isTimestampBounded(incoming().updatedAt) &&
+                       exists(/databases/$(database)/documents/users/$(incoming().requesterUid)) &&
+                       exists(/databases/$(database)/documents/users/$(incoming().recipientUid));
+
+      // Terminal state lock: once status == 'accepted', no further updates allowed.
+      allow update: if isSignedIn() &&
+                       isValidId(friendshipId) &&
+                       isValidFriendship(incoming(), friendshipId) &&
+                       existing().status == 'pending' &&
+                       request.auth.uid == existing().recipientUid &&
+                       incoming().status == 'accepted' &&
+                       incoming().memberUids == existing().memberUids &&
+                       incoming().requesterUid == existing().requesterUid &&
+                       incoming().recipientUid == existing().recipientUid &&
+                       incoming().requesterName == existing().requesterName &&
+                       incoming().requesterHandle == existing().requesterHandle &&
+                       incoming().recipientName == existing().recipientName &&
+                       incoming().recipientHandle == existing().recipientHandle &&
+                       incoming().createdAt == existing().createdAt &&
+                       isTimestampBounded(incoming().updatedAt) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+
+      allow delete: if isSignedIn() &&
+                       isValidId(friendshipId) &&
+                       request.auth.uid in existing().memberUids;
+    }
+
+    // --- 4. LISTENING CARD SHARING ---
+
+    match /listeningCards/{userId} {
+      allow get: if isSignedIn() &&
+                    isValidId(userId) &&
+                    (request.auth.uid == userId ||
+                     (resource != null && request.auth.uid in existing().viewerUids) ||
+                     isAcceptedFriend(userId));
+
+      allow list: if isSignedIn() && request.auth.uid in resource.data.viewerUids;
+
+      allow create: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       incoming().keys().hasAll([
+                         'uid', 'ownerName', 'handle', 'persona', 'hoursLabel',
+                         'plays', 'artistCount', 'bestStreak', 'topArtists',
+                         'viewerUids', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'uid', 'ownerName', 'handle', 'discordUsername', 'persona',
+                         'sinceLabel', 'hoursLabel', 'plays', 'artistCount', 'bestStreak',
+                         'topSongTitle', 'topSongArtist', 'topGenre', 'topArtists',
+                         'viewerUids', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidListeningCard(incoming(), userId) &&
+                       isTimestampBounded(incoming().createdAt) &&
+                       isTimestampBounded(incoming().updatedAt) &&
+                       exists(/databases/$(database)/documents/users/$(userId));
+
+      allow update: if isSignedIn() &&
+                       isValidId(userId) &&
+                       isValidListeningCard(incoming(), userId) &&
+                       incoming().uid == existing().uid &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         // Action: Owner publishes/refreshes their own card
+                         (request.auth.uid == userId &&
+                          isTimestampBounded(incoming().updatedAt) &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'ownerName', 'handle', 'discordUsername', 'persona',
+                            'sinceLabel', 'hoursLabel', 'plays', 'artistCount', 'bestStreak',
+                            'topSongTitle', 'topSongArtist', 'topGenre', 'topArtists',
+                            'viewerUids', 'updatedAt'
+                          ])) ||
+                         // Action: Accepted friend appends only themselves to viewerUids for real-time feed
+                         (isAcceptedFriend(userId) &&
+                          !(request.auth.uid in existing().viewerUids) &&
+                          incoming().viewerUids == existing().viewerUids.concat([request.auth.uid]) &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['viewerUids']))
+                       );
+
+      allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+    }
+
+    // --- 5. PLAYLIST INVITE CODES ---
+
+    match /playlistInvites/{inviteCode} {
+      allow get: if isSignedIn() && isValidInviteCode(inviteCode);
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       isValidInviteCode(inviteCode) &&
+                       incoming().keys().hasAll(['playlistId', 'ownerId', 'title', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['playlistId', 'ownerId', 'title', 'createdAt', 'updatedAt']) &&
+                       isValidPlaylistInvite(incoming()) &&
+                       incoming().ownerId == request.auth.uid &&
+                       isTimestampBounded(incoming().createdAt) &&
+                       isTimestampBounded(incoming().updatedAt) &&
+                       existsAfter(/databases/$(database)/documents/collabPlaylists/$(incoming().playlistId)) &&
+                       getAfter(/databases/$(database)/documents/collabPlaylists/$(incoming().playlistId)).data.ownerId == request.auth.uid &&
+                       getAfter(/databases/$(database)/documents/collabPlaylists/$(incoming().playlistId)).data.inviteCode == inviteCode;
+
+      allow update: if isSignedIn() &&
+                       isValidInviteCode(inviteCode) &&
+                       existing().ownerId == request.auth.uid &&
+                       isValidPlaylistInvite(incoming()) &&
+                       incoming().playlistId == existing().playlistId &&
+                       incoming().ownerId == existing().ownerId &&
+                       incoming().createdAt == existing().createdAt &&
+                       isTimestampBounded(incoming().updatedAt) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['title', 'updatedAt']);
+
+      allow delete: if isSignedIn() && isValidInviteCode(inviteCode) && existing().ownerId == request.auth.uid;
+    }
+
+    // --- 6. COLLABORATIVE PLAYLISTS & TRACKS ---
+
+    match /collabPlaylists/{playlistId} {
+      allow get: if isSignedIn() &&
+                    isValidId(playlistId) &&
+                    resource != null &&
+                    request.auth.uid in existing().memberUids;
+
+      allow list: if isSignedIn() && request.auth.uid in resource.data.memberUids;
+
+      allow create: if isSignedIn() &&
+                       isValidId(playlistId) &&
+                       incoming().keys().hasAll([
+                         'title', 'ownerId', 'ownerName', 'inviteCode',
+                         'memberUids', 'memberNames', 'trackCount', 'trackDocIds',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'title', 'description', 'ownerId', 'ownerName', 'inviteCode',
+                         'memberUids', 'memberNames', 'trackCount', 'trackDocIds', 'coverUrl',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidCollabPlaylist(incoming()) &&
+                       incoming().ownerId == request.auth.uid &&
+                       incoming().memberUids == [request.auth.uid] &&
+                       incoming().memberNames.size() == 1 &&
+                       incoming().trackCount == 0 &&
+                       incoming().trackDocIds.size() == 0 &&
+                       isTimestampBounded(incoming().createdAt) &&
+                       isTimestampBounded(incoming().updatedAt) &&
+                       exists(/databases/$(database)/documents/users/$(request.auth.uid));
+
+      allow update: if isSignedIn() &&
+                       isValidId(playlistId) &&
+                       isValidCollabPlaylist(incoming()) &&
+                       incoming().ownerId == existing().ownerId &&
+                       incoming().ownerName == existing().ownerName &&
+                       incoming().inviteCode == existing().inviteCode &&
+                       incoming().createdAt == existing().createdAt &&
+                       isTimestampBounded(incoming().updatedAt) &&
+                       (
+                         // Action 1: Owner edits title/description
+                         (request.auth.uid == existing().ownerId &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'updatedAt'])) ||
+                         // Action 2: Self-join using valid inviteCode document
+                         (!(request.auth.uid in existing().memberUids) &&
+                          incoming().memberUids == existing().memberUids.concat([request.auth.uid]) &&
+                          incoming().memberNames.size() == existing().memberNames.size() + 1 &&
+                          incoming().memberNames.hasAll(existing().memberNames) &&
+                          exists(/databases/$(database)/documents/playlistInvites/$(existing().inviteCode)) &&
+                          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['memberUids', 'memberNames', 'updatedAt'])) ||
+                         // Action 3: Non-owner collaborator leaves playlist
+                         (request.auth.uid in existing().memberUids &&
+                          request.auth.uid != existing().ownerId &&
+                          !(request.auth.uid in incoming().memberUids) &&
+                          existing().memberUids.hasAll(incoming().memberUids) &&
+                          incoming().memberUids.size() == existing().memberUids.size() - 1 &&
+                          existing().memberNames.hasAll(incoming().memberNames) &&
+                          incoming().memberNames.size() >= 1 &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['memberUids', 'memberNames', 'updatedAt'])) ||
+                         // Action 4: Member updates denormalized track summary
+                         (request.auth.uid in existing().memberUids &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['trackCount', 'trackDocIds', 'coverUrl', 'updatedAt']))
+                       );
+
+      allow delete: if isSignedIn() && isValidId(playlistId) && existing().ownerId == request.auth.uid;
+
+      match /tracks/{trackDocId} {
+        allow get: if isSignedIn() &&
+                      isValidId(playlistId) &&
+                      isValidId(trackDocId) &&
+                      ((resource != null && request.auth.uid in existing().memberUids) ||
+                       (exists(/databases/$(database)/documents/collabPlaylists/$(playlistId)) &&
+                        request.auth.uid in get(/databases/$(database)/documents/collabPlaylists/$(playlistId)).data.memberUids));
+
+        // Flat evaluation on denormalized memberUids (no get()/exists() in list).
+        allow list: if isSignedIn() && request.auth.uid in resource.data.memberUids;
+
+        allow create: if isSignedIn() &&
+                         isValidId(playlistId) &&
+                         isValidId(trackDocId) &&
+                         incoming().keys().hasAll([
+                           'playlistId', 'memberUids', 'mediaId', 'title', 'artistLine',
+                           'addedByUid', 'addedByName', 'createdAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'playlistId', 'memberUids', 'mediaId', 'title', 'artistLine',
+                           'albumTitle', 'artworkUrl', 'durationMs',
+                           'addedByUid', 'addedByName', 'createdAt'
+                         ]) &&
+                         isValidCollabTrack(incoming(), playlistId) &&
+                         incoming().addedByUid == request.auth.uid &&
+                         isTimestampBounded(incoming().createdAt) &&
+                         exists(/databases/$(database)/documents/collabPlaylists/$(playlistId)) &&
+                         request.auth.uid in get(/databases/$(database)/documents/collabPlaylists/$(playlistId)).data.memberUids &&
+                         incoming().memberUids == get(/databases/$(database)/documents/collabPlaylists/$(playlistId)).data.memberUids;
+
+        // Track metadata is immutable except syncing memberUids to match parent playlist.
+        allow update: if isSignedIn() &&
+                         isValidId(playlistId) &&
+                         isValidId(trackDocId) &&
+                         isValidCollabTrack(incoming(), playlistId) &&
+                         incoming().playlistId == existing().playlistId &&
+                         incoming().addedByUid == existing().addedByUid &&
+                         incoming().createdAt == existing().createdAt &&
+                         exists(/databases/$(database)/documents/collabPlaylists/$(playlistId)) &&
+                         request.auth.uid in get(/databases/$(database)/documents/collabPlaylists/$(playlistId)).data.memberUids &&
+                         incoming().memberUids == get(/databases/$(database)/documents/collabPlaylists/$(playlistId)).data.memberUids &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['memberUids']);
+
+        allow delete: if isSignedIn() &&
+                         isValidId(playlistId) &&
+                         isValidId(trackDocId) &&
+                         ((exists(/databases/$(database)/documents/collabPlaylists/$(playlistId)) &&
+                           request.auth.uid in get(/databases/$(database)/documents/collabPlaylists/$(playlistId)).data.memberUids) ||
+                          existing().addedByUid == request.auth.uid);
+      }
+    }
+  }
+}

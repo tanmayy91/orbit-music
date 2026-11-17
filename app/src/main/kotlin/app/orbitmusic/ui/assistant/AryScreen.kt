@@ -58,6 +58,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.orbitmusic.assistant.AryChange
 import app.orbitmusic.assistant.AryChangeKind
+import app.orbitmusic.assistant.AryCloudSyncStatus
 import app.orbitmusic.assistant.AryMessage
 import app.orbitmusic.assistant.AryUiState
 import app.orbitmusic.assistant.AryViewModel
@@ -107,6 +108,7 @@ fun AryScreen(playlistId: Long? = null) {
     val focusedId by vm.focusedPlaylistId.collectAsStateWithLifecycle()
     val messages by vm.messages.collectAsStateWithLifecycle()
     val uiState by vm.uiState.collectAsStateWithLifecycle()
+    val syncStatus by vm.cloudSyncStatus.collectAsStateWithLifecycle()
     val playback by container.playback.state.collectAsStateWithLifecycle()
     var input by rememberSaveable { mutableStateOf("") }
 
@@ -176,6 +178,31 @@ fun AryScreen(playlistId: Long? = null) {
                     maxLines = 1,
                     modifier = Modifier.padding(horizontal = Space.edge),
                 )
+            }
+            when (val sync = syncStatus) {
+                is AryCloudSyncStatus.Synced -> Txt(
+                    text = "Cloud sync on  ·  @${sync.handle}",
+                    style = Type.Meta,
+                    color = Ink.Dim,
+                    align = TextAlign.Center,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .quietClick { actions.nav.open(Route.Cloud) }
+                        .padding(horizontal = Space.edge, vertical = 2.dp)
+                        .testTag("ary_sync_status_badge"),
+                )
+                is AryCloudSyncStatus.Paused -> Txt(
+                    text = "Cloud sync paused  ·  @${sync.handle}",
+                    style = Type.Meta,
+                    color = Ink.Dim,
+                    align = TextAlign.Center,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .quietClick { actions.nav.open(Route.Cloud) }
+                        .padding(horizontal = Space.edge, vertical = 2.dp)
+                        .testTag("ary_sync_status_badge"),
+                )
+                AryCloudSyncStatus.LocalOnly -> Unit
             }
             if (playlists.isNotEmpty()) {
                 Spacer(Modifier.height(10.dp))

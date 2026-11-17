@@ -21,15 +21,21 @@ fun configureAppCheck(context: Context, intent: Intent?) {
             FirebaseApp.initializeApp(context)
         }
 
-        if (BuildConfig.DEBUG) {
-            val debugToken = intent?.getStringExtra(DEBUG_TOKEN_EXTRA)
+        val debugToken = intent?.getStringExtra(DEBUG_TOKEN_EXTRA)
+        // Debug builds in this project set isDebuggable = false for ART shader performance,
+        // which causes AGP to generate BuildConfig.DEBUG == false even on debug builds.
+        val isDebugBuild = BuildConfig.DEBUG ||
+            BuildConfig.BUILD_TYPE.equals("debug", ignoreCase = true) ||
+            !debugToken.isNullOrEmpty()
 
+        if (isDebugBuild) {
             if (!debugToken.isNullOrEmpty()) {
                 val persistenceKey = FirebaseApp.getInstance().persistenceKey
                 val prefs = context.getSharedPreferences(
                     "$DEBUG_STORE_PREFIX$persistenceKey",
                     Context.MODE_PRIVATE,
                 )
+                // Synchronously persist the debug secret before installing the provider factory.
                 prefs.edit()
                     .putString(DEBUG_SECRET_KEY, debugToken)
                     .commit()

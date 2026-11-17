@@ -55,7 +55,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import app.orbitmusic.cloud.CollabPlaylist
+import app.orbitmusic.cloud.UserProfile
 import app.orbitmusic.core.designsystem.component.IconAction
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flowOf
 
 /** What can be done with a track: grouped glass rows, each with its flat mark. */
 @Composable
@@ -66,6 +70,17 @@ fun TrackMenu(track: Track, close: () -> Unit) {
     val liked by container.library.isLiked(track.id).collectAsStateWithLifecycle(false)
     val playlists by container.library.playlists.collectAsStateWithLifecycle(emptyList())
     val kept by container.downloads.entries.collectAsStateWithLifecycle()
+    val cloudUser by container.cloudAuth.authState.collectAsStateWithLifecycle(container.cloudAuth.currentUser)
+    val cloudProfile by remember(cloudUser?.uid) {
+        val uid = cloudUser?.uid
+        if (uid == null) flowOf<UserProfile?>(null)
+        else container.cloud.observeUserProfile(uid).catch { emit(null) }
+    }.collectAsStateWithLifecycle(null)
+    val collabPlaylists by remember(cloudUser?.uid) {
+        val uid = cloudUser?.uid
+        if (uid == null) flowOf<List<CollabPlaylist>>(emptyList())
+        else container.cloud.observeCollabPlaylists(uid).catch { emit(emptyList()) }
+    }.collectAsStateWithLifecycle(emptyList())
     val keeping = kept[track.id]
     var choosing by remember { mutableStateOf(false) }
     var naming by remember { mutableStateOf(false) }
@@ -121,6 +136,22 @@ fun TrackMenu(track: Track, close: () -> Unit) {
                     scope.launch { container.library.add(p.id, listOf(track)) }
                     actions.keep.note("Added to ${p.title}")
                     close()
+                }
+            }
+            if (cloudProfile != null && collabPlaylists.isNotEmpty()) {
+                Head("Collaborative playlists")
+                collabPlaylists.forEach { cp ->
+                    Entry(Glyph.Profile, "${cp.title}  ·  ${cp.inviteCode}") {
+                        val prof = cloudProfile ?: return@Entry
+                        scope.launch {
+                            val res = container.cloud.addTrackToCollabPlaylist(prof, cp.id, track)
+                            res.fold(
+                                onSuccess = { actions.keep.note("Added to ${cp.title}") },
+                                onFailure = { e -> actions.keep.note(e.localizedMessage ?: "Couldn\u2019t add to ${cp.title}") },
+                            )
+                        }
+                        close()
+                    }
                 }
             }
         }

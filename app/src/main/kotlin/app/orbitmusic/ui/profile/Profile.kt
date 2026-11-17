@@ -78,6 +78,7 @@ import app.orbitmusic.core.data.Settings
 import app.orbitmusic.core.designsystem.art.ArtTreatment
 import app.orbitmusic.core.designsystem.art.TreatedArtwork
 import app.orbitmusic.core.designsystem.component.GlassButton
+import app.orbitmusic.core.designsystem.component.GlassCircle
 import app.orbitmusic.core.designsystem.component.GlassPill
 import app.orbitmusic.core.designsystem.component.GlassSegments
 import app.orbitmusic.core.designsystem.component.Notice
@@ -255,6 +256,11 @@ private fun RoomSetup(chosenAssistant: String?, onRenameAssistant: () -> Unit) {
     val context = LocalContext.current
     val session by container.account.cookies.collectAsStateWithLifecycle()
     val timedLyrics by container.settings.timedLyrics.collectAsStateWithLifecycle()
+    val cloudUser by container.cloudAuth.authState.collectAsStateWithLifecycle(container.cloudAuth.currentUser)
+    val cloudProfile by produceState<app.orbitmusic.cloud.UserProfile?>(null, cloudUser?.uid) {
+        val uid = cloudUser?.uid
+        value = if (uid == null) null else container.cloud.getUserProfile(uid).getOrNull()
+    }
     val wanted = remember {
         buildList {
             add(if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE)
@@ -307,6 +313,31 @@ private fun RoomSetup(chosenAssistant: String?, onRenameAssistant: () -> Unit) {
                 small = true,
                 modifier = Modifier.testTag("profile_assistant_edit_button"),
                 onClick = onRenameAssistant,
+            )
+        }
+        Box(Modifier.fillMaxWidth().height(0.5.dp).background(Ink.Hairline))
+        Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Txt("Cloud & Friends", Type.TitleSmall)
+                Spacer(Modifier.height(4.dp))
+                Txt(
+                    when {
+                        cloudProfile != null -> "@${cloudProfile!!.handle}  ·  Collab playlists, Ary sync & shared cards"
+                        cloudUser != null -> "Signed in  ·  Finish @handle registration"
+                        else -> "Optional: collaborative playlists, Ary sync & listening cards"
+                    },
+                    Type.Meta,
+                    color = Ink.Grey,
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            GlassPill(
+                if (cloudUser != null) "Open" else "Sign in",
+                icon = Glyph.Profile,
+                small = true,
+                lit = cloudUser == null,
+                modifier = Modifier.testTag("profile_cloud_button"),
+                onClick = { actions.nav.open(Route.Cloud) },
             )
         }
         Box(Modifier.fillMaxWidth().height(0.5.dp).background(Ink.Hairline))
@@ -459,6 +490,7 @@ private fun Head(
     onAssistant: () -> Unit,
     onSettings: () -> Unit,
 ) {
+    val actions = LocalActions.current
     Column(Modifier.separate().fillMaxWidth().windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility).padding(top = 44.dp, start = 20.dp, end = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         if (!photo.isEmpty) {
             TreatedArtwork(photo, ArtTreatment.Print, Modifier.size(76.dp).clip(CircleShape), sizeHintPx = 240)
@@ -482,12 +514,14 @@ private fun Head(
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 GlassButton("Export card", onClick = onExport)
                 GlassPill("Ask $assistant", icon = Glyph.Sparkle, lit = true, modifier = Modifier.testTag("profile_open_assistant_button"), onClick = onAssistant)
+                GlassCircle(Glyph.Profile, "Friends & Cloud", { actions.nav.open(Route.Cloud) }, size = 48.dp, modifier = Modifier.testTag("profile_friends_button"))
             }
         } else {
             Spacer(Modifier.height(20.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 GlassPill("Ask $assistant", icon = Glyph.Sparkle, lit = true, modifier = Modifier.testTag("profile_open_assistant_button"), onClick = onAssistant)
-                GlassPill("Settings", icon = Glyph.Gear, modifier = Modifier.testTag("profile_settings_top_button"), onClick = onSettings)
+                GlassCircle(Glyph.Profile, "Friends & Cloud", { actions.nav.open(Route.Cloud) }, size = 48.dp, modifier = Modifier.testTag("profile_friends_button"))
+                GlassCircle(Glyph.Gear, "Settings", onSettings, size = 48.dp, modifier = Modifier.testTag("profile_settings_top_button"))
             }
         }
     }
