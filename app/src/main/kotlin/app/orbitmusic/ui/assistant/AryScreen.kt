@@ -2,7 +2,9 @@
 
 package app.orbitmusic.ui.assistant
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +28,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -42,8 +45,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -51,11 +56,13 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import app.orbitmusic.R
 import app.orbitmusic.assistant.AryChange
 import app.orbitmusic.assistant.AryChangeKind
 import app.orbitmusic.assistant.AryMessage
@@ -71,7 +78,6 @@ import app.orbitmusic.core.designsystem.component.GlassPill
 import app.orbitmusic.core.designsystem.component.Glyph
 import app.orbitmusic.core.designsystem.component.GridDots
 import app.orbitmusic.core.designsystem.component.Icon
-import app.orbitmusic.core.designsystem.component.LightCross
 import app.orbitmusic.core.designsystem.component.LocalHaptics
 import app.orbitmusic.core.designsystem.component.Txt
 import app.orbitmusic.core.designsystem.component.quietClick
@@ -157,8 +163,8 @@ fun AryScreen(playlistId: Long? = null) {
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                LightCross(size = 16.dp, intensity = 0.85f)
-                Spacer(Modifier.width(8.dp))
+                AryAvatar(size = 28.dp, contentDescription = "$assistantName icon")
+                Spacer(Modifier.width(9.dp))
                 Txt(
                     text = assistantName,
                     style = Type.Label,
@@ -318,10 +324,14 @@ private fun EmptyAryState(
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(top = 28.dp, bottom = 12.dp),
+            .padding(top = 24.dp, bottom = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        LightCross(size = 44.dp, intensity = 0.85f)
+        AryAvatar(
+            size = 96.dp,
+            contentDescription = "$assistantName avatar",
+            modifier = Modifier.testTag("ary_avatar_hero"),
+        )
         Spacer(Modifier.height(16.dp))
         Txt("With $assistantName", Type.Monument, align = TextAlign.Center)
         Spacer(Modifier.height(10.dp))
@@ -374,8 +384,8 @@ private fun AssistantTurn(
 ) {
     Column(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Glyph.Sparkle, size = 13.dp, color = Ink.Grey)
-            Spacer(Modifier.width(7.dp))
+            AryAvatar(size = 20.dp, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
             Txt(assistantName, Type.Label, color = Ink.Grey, upper = true)
         }
         Spacer(Modifier.height(8.dp))
@@ -565,4 +575,21 @@ private fun ComposerBar(
             )
         }
     }
+}
+
+@Composable
+private fun AryAvatar(
+    size: Dp,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+) {
+    Image(
+        painter = painterResource(id = R.drawable.img_ary_avatar),
+        contentDescription = contentDescription,
+        contentScale = ContentScale.Crop,
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .border(0.75.dp, Ink.Hairline, CircleShape),
+    )
 }

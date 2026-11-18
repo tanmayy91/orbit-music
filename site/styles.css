@@ -263,6 +263,7 @@ img, video, canvas { display: block; }
 .edition { padding: 18vh var(--gutter) 12vh; display: grid; justify-items: center; gap: clamp(36px, 7vh, 70px); }
 .edition__sign { display: grid; justify-items: center; }
 .edition__sign .cross { width: 96px; height: 96px; }
+.edition__icon { width: 84px; height: 84px; border-radius: 20px; border: 1px solid var(--hair); margin-bottom: 18px; box-shadow: 0 14px 40px rgba(0, 0, 0, .6); }
 .edition__word { font-family: var(--script); font-weight: 400; font-size: clamp(90px, 11vw, 190px); line-height: 1.12; }
 .edition__sub { color: var(--grey); letter-spacing: .4em; margin-right: -.4em; }
 .cert { width: min(680px, 100%); border-top: 1px solid var(--hair); }
