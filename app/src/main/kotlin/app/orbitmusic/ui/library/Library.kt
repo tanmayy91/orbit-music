@@ -160,13 +160,6 @@ fun LibraryScreen() {
                                 modifier = Modifier.testTag("library_open_assistant_button"),
                                 onClick = { actions.go(Route.Ary()) },
                             )
-                            GlassPill(
-                                text = "Collab & Friends",
-                                icon = Glyph.Profile,
-                                small = true,
-                                modifier = Modifier.testTag("library_open_collab_button"),
-                                onClick = { actions.nav.open(Route.Cloud) },
-                            )
                         }
                     }
                     val cards = buildList<@Composable () -> Unit> {

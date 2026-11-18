@@ -114,7 +114,7 @@ class DiscordSignInActivity : ComponentActivity() {
                         )
                     }
                     Txt(
-                        "Sign in on Discord's page for Orbit Cloud & Rich Presence. Only your session token is kept, sealed in this phone's Keystore.",
+                        "Sign in on Discord's page for Rich Presence. Only your session token is kept, sealed in this phone's Keystore.",
                         Type.Meta,
                         color = Ink.Grey,
                         modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 10.dp),

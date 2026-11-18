@@ -27,7 +27,11 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 private const val TAG = "AryViewModel"
-private const val MODEL_NAME = "gemini-2.5-flash"
+private val GEMINI_MODELS = listOf(
+    "gemini-3.8-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-flash-latest",
+)
 private const val GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 private const val GENERATION_TIMEOUT_MS = 60_000L
 private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
@@ -230,7 +234,7 @@ class AryViewModel(
     private suspend fun generateAryJson(fullPrompt: String): String? = withContext(Dispatchers.IO) {
         val apiKey = BuildConfig.GEMINI_API_KEY.trim()
         if (apiKey.isEmpty() || apiKey == "your_gemini_api_key_here") {
-            throw IllegalStateException("Gemini API key is not configured. Add GEMINI_API_KEY in AI Studio Secrets.")
+            throw IllegalStateException("Gemini API key is not configured. Set GEMINI_API_KEY in GitHub Secrets or .env.")
         }
 
         val payload = JSONObject().apply {
@@ -250,32 +254,52 @@ class AryViewModel(
                     put("responseSchema", responseSchemaJson)
                 },
             )
-        }
+        }.toString()
 
-        val request = Request.Builder()
-            .url("$GEMINI_API_BASE/$MODEL_NAME:generateContent")
-            .header("x-goog-api-key", apiKey)
-            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
-            .build()
+        var lastError: IllegalStateException? = null
+        for ((index, modelName) in GEMINI_MODELS.withIndex()) {
+            val request = Request.Builder()
+                .url("$GEMINI_API_BASE/$modelName:generateContent")
+                .header("x-goog-api-key", apiKey)
+                .post(payload.toRequestBody(JSON_MEDIA_TYPE))
+                .build()
 
-        container.http.newCall(request).await().use { response ->
-            val rawBody = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
+            container.http.newCall(request).await().use { response ->
+                val rawBody = response.body?.string().orEmpty()
+                if (response.isSuccessful) {
+                    val root = JSONObject(rawBody)
+                    val candidates = root.optJSONArray("candidates") ?: return@withContext null
+                    val first = candidates.optJSONObject(0) ?: return@withContext null
+                    val parts = first.optJSONObject("content")?.optJSONArray("parts") ?: return@withContext null
+                    return@withContext buildString {
+                        for (i in 0 until parts.length()) {
+                            append(parts.optJSONObject(i)?.optString("text").orEmpty())
+                        }
+                    }.takeIf { it.isNotBlank() }
+                }
+
                 val apiMessage = runCatching {
                     JSONObject(rawBody).optJSONObject("error")?.optString("message")
                 }.getOrNull()?.takeIf { it.isNotBlank() }
-                throw IllegalStateException(apiMessage ?: "Gemini request failed (HTTP ${response.code}).")
-            }
-            val root = JSONObject(rawBody)
-            val candidates = root.optJSONArray("candidates") ?: return@use null
-            val first = candidates.optJSONObject(0) ?: return@use null
-            val parts = first.optJSONObject("content")?.optJSONArray("parts") ?: return@use null
-            buildString {
-                for (i in 0 until parts.length()) {
-                    append(parts.optJSONObject(i)?.optString("text").orEmpty())
+                val message = apiMessage ?: "Gemini request failed (HTTP ${response.code})."
+                val modelUnavailable = response.code == 404 ||
+                    (
+                        response.code == 400 && (
+                            message.contains("not found", ignoreCase = true) ||
+                                message.contains("not supported", ignoreCase = true) ||
+                                message.contains("no longer available", ignoreCase = true) ||
+                                message.contains("deprecated", ignoreCase = true)
+                            )
+                        )
+                if (modelUnavailable && index < GEMINI_MODELS.lastIndex) {
+                    Log.w(TAG, "Gemini model $modelName unavailable (${response.code}), trying fallback.")
+                    lastError = IllegalStateException(message)
+                } else {
+                    throw IllegalStateException(message)
                 }
-            }.takeIf { it.isNotBlank() }
+            }
         }
+        throw lastError ?: IllegalStateException("No Gemini Flash model is available for this API key.")
     }
 
     private suspend fun loadPlaylistContexts(): List<AryPlaylistContext> {

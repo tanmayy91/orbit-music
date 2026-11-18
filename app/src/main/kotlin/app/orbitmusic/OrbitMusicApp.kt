@@ -71,8 +71,6 @@ import kotlinx.coroutines.launch
 import app.orbitmusic.update.UpdateCenter
 import app.orbitmusic.core.data.DiscordAccountStore
 import app.orbitmusic.discord.DiscordRpcClient
-import app.orbitmusic.cloud.CloudAuthManager
-import app.orbitmusic.cloud.CloudRepository
 
 /** Everything the app is made of, built once. Screens reach it through `LocalContainer`. */
 class Container(app: Application) {
@@ -112,8 +110,6 @@ class Container(app: Application) {
     val accountPlaylists by lazy { AccountPlaylists(app, scope, account, sources, library, online) }
     val playback = PlaybackConnection(app, scope)
     val discordRpc = DiscordRpcClient(discordStore, http, scope)
-    val cloudAuth: CloudAuthManager by lazy { CloudAuthManager(discordStore, discordRpc) }
-    val cloud: CloudRepository by lazy { CloudRepository(http = http, auth = cloudAuth) }
 
     /**
      * Songs kept on the phone to play offline, each a file in the listener's Music folder with its

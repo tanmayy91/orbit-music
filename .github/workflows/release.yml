@@ -164,21 +164,12 @@ jobs:
       - name: Configure app secrets from GitHub Secrets
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           : > .env
-          missing=""
-          for key in GEMINI_API_KEY SUPABASE_URL SUPABASE_ANON_KEY; do
-            val="$(printenv "$key" || true)"
-            if [ -n "$val" ]; then
-              printf '%s=%s\n' "$key" "$val" >> .env
-            else
-              missing="${missing} ${key}"
-            fi
-          done
-          if [ -n "$missing" ]; then
-            echo "::warning::GitHub Secrets not set for:${missing}. Falling back to .env.example placeholders in release APK."
+          if [ -n "${GEMINI_API_KEY}" ]; then
+            printf 'GEMINI_API_KEY=%s\n' "${GEMINI_API_KEY}" >> .env
+          else
+            echo "::warning::GitHub Secret not set for GEMINI_API_KEY. Falling back to .env.example placeholder in release APK."
           fi
 
       - name: Run unit tests
